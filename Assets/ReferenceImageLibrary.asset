@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 848409ee8ba454f42a5ddff137688a27, type: 3}
+  m_Name: ReferenceImageLibrary
+  m_EditorClassIdentifier: Unity.XR.ARSubsystems::UnityEngine.XR.ARSubsystems.XRReferenceImageLibrary
+  m_GuidLow: 4863768978436234796
+  m_GuidHigh: 16793318439567417276
+  m_DataStore:
+    m_Storage: []
+  m_Images:
+  - m_SerializedGuid:
+      m_GuidLow: 5194781310963951528
+      m_GuidHigh: 4959764564217298060
+    m_SerializedTextureGuid:
+      m_GuidLow: 7292544414657531931
+      m_GuidHigh: 13400924294293538123
+    m_Size: {x: 0.085, y: 0.055}
+    m_SpecifySize: 1
+    m_Name: Front
+    m_Texture: {fileID: 0}
+  - m_SerializedGuid:
+      m_GuidLow: 4917057237296468323
+      m_GuidHigh: 4347483498504359053
+    m_SerializedTextureGuid:
+      m_GuidLow: 15867484922639222678
+      m_GuidHigh: 10291752589470628568
+    m_Size: {x: 0.085, y: 0.055}
+    m_SpecifySize: 1
+    m_Name: Back
+    m_Texture: {fileID: 0}
