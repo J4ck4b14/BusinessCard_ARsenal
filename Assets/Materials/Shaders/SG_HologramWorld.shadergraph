@@ -2259,8 +2259,8 @@
     "m_ObjectId": "08d525a045eb4da98d341fe0fc49db24",
     "m_Title": "BurstGate",
     "m_Position": {
-        "x": -5829.00048828125,
-        "y": 1785.0001220703125
+        "x": -5829.0,
+        "y": 1785.0
     }
 }
 
@@ -4116,8 +4116,8 @@
     "m_ObjectId": "2effbde07e4849fab7dfa132bf3aae4e",
     "m_Title": "BaseColor",
     "m_Position": {
-        "x": -1898.000244140625,
-        "y": 241.00001525878907
+        "x": -1898.0,
+        "y": 241.0
     }
 }
 
@@ -4234,8 +4234,8 @@
     "m_ObjectId": "320a7ef7682c4a6983ddcc534de85b4b",
     "m_Title": "Displacement",
     "m_Position": {
-        "x": -2432.000244140625,
-        "y": -18.999969482421876
+        "x": -2432.0,
+        "y": -19.0
     }
 }
 
@@ -7223,8 +7223,8 @@
     "m_ObjectId": "7cbd62734786428f8b7b5073991af14f",
     "m_Title": "Edge Glow",
     "m_Position": {
-        "x": -4230.00048828125,
-        "y": 464.00006103515627
+        "x": -4230.0,
+        "y": 464.0
     }
 }
 
@@ -9999,8 +9999,8 @@
     "m_ObjectId": "b3165bea8b1e4bbaa9bbd43e65e426e3",
     "m_Title": "Edge Pulse",
     "m_Position": {
-        "x": -3430.000244140625,
-        "y": 113.00001525878906
+        "x": -3430.0,
+        "y": 113.0
     }
 }
 
@@ -10393,7 +10393,7 @@
     "m_AlphaMode": 0,
     "m_RenderFace": 2,
     "m_AlphaClip": false,
-    "m_CastShadows": true,
+    "m_CastShadows": false,
     "m_ReceiveShadows": true,
     "m_DisableTint": false,
     "m_Sort3DAs2DCompatible": false,
@@ -11458,8 +11458,8 @@
     "m_ObjectId": "c9696ae62b394964bfa33cca3b5a2ca7",
     "m_Title": "Scanlines",
     "m_Position": {
-        "x": -5672.00048828125,
-        "y": 860.0000610351563
+        "x": -5672.0,
+        "y": 860.0
     }
 }
 
@@ -13088,8 +13088,8 @@
     "m_ObjectId": "e9f3da6bf2f447bf8da25264b66f42d4",
     "m_Title": "Glitch",
     "m_Position": {
-        "x": -4135.00048828125,
-        "y": 2008.000244140625
+        "x": -4135.0,
+        "y": 2008.0
     }
 }
 
