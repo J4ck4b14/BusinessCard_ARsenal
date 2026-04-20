@@ -397,11 +397,12 @@ GameObject:
   - component: {fileID: 6782045884136411141}
   - component: {fileID: -1628555549867214667}
   - component: {fileID: 1306460404151865483}
+  - component: {fileID: 6520115459026207645}
   - component: {fileID: 5354088637707723456}
   - component: {fileID: 642887503146218340}
   m_Layer: 0
   m_Name: Tank
-  m_TagString: Untagged
+  m_TagString: Player
   m_Icon: {fileID: 0}
   m_NavMeshLayer: 0
   m_StaticEditorFlags: 0
@@ -458,7 +459,7 @@ MonoBehaviour:
   faction: 0
   weapons:
   - {fileID: -1628555549867214667}
-  - {fileID: 1306460404151865483}
+  agent: {fileID: 0}
 --- !u!114 &6782045884136411141
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -488,7 +489,7 @@ MonoBehaviour:
   faction: 0
   cannonEnd: {fileID: 6347815481965708910}
   projectilePrefab: {fileID: 6353359516459939880, guid: d2515f067d36f7948ac7665091d38882, type: 3}
-  cooldown: 0.5
+  cooldown: 1.5
 --- !u!114 &1306460404151865483
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -506,12 +507,32 @@ MonoBehaviour:
   cannonEnd: {fileID: 6347815481965708910}
   projectilePrefab: {fileID: 6353359516459939880, guid: c3bb92b678ead7d43b8cd728ba40962c, type: 3}
   cooldown: 0.5
-  shotInterval: 0.1
-  heatPerShot: 10
+  shotInterval: 0.075
+  heatPerShot: 5
   maxHeat: 100
   coolRate: 30
   currentHeat: 0
   isOverheated: 0
+--- !u!114 &6520115459026207645
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4388454904427986972}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: e88ba7ba4377bf0428ce1d029248bbc3, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::ChargeWeapon
+  owner: {fileID: 4388454904427986972}
+  faction: 0
+  cannonEnd: {fileID: 6347815481965708910}
+  projectilePrefab: {fileID: 9024045256645160786, guid: a7c57341ace533b49af6bdb7cb418e53, type: 3}
+  cooldown: 30
+  maxChargeTime: 3
+  minDamage: 5
+  maxDamage: 40
 --- !u!114 &5354088637707723456
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -815,9 +836,7 @@ RotationConstraint:
   m_AffectRotationZ: 1
   m_Active: 1
   m_IsLocked: 0
-  m_Sources:
-  - sourceTransform: {fileID: 0}
-    weight: 1
+  m_Sources: []
 --- !u!114 &6213770708450430288
 MonoBehaviour:
   m_ObjectHideFlags: 0

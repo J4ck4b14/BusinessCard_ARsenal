@@ -2,7 +2,8 @@ using UnityEngine;
 
 public class ElectricProjectile : ProjectileBase
 {
-    [SerializeField] private float maxScaleMult = 2.5f;
+    public float maxScaleMult = 2.5f;
+    [SerializeField] private bool isCharging = false;
 
     public void Initialize(float chargedDamage, float chargeRatio)
     {
@@ -26,5 +27,13 @@ public class ElectricProjectile : ProjectileBase
         }
 
         return true;
+    }
+    
+    private void Update()
+    {
+        if (isCharging)
+            return;
+
+        transform.position += transform.forward * speed * Time.deltaTime;
     }
 }

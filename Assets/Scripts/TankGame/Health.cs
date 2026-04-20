@@ -40,8 +40,6 @@ public class Health : MonoBehaviour
         if (currentHealth <= 0)
         {
             currentHealth = 0;
-            // Handle tank destruction here (e.g., play explosion, disable tank, etc.)
-            Debug.Log("Tank destroyed!");
             Die();
         }
         lastDamageReceived = Time.time;
@@ -65,6 +63,8 @@ public class Health : MonoBehaviour
         if (hasRegen && currentHealth < maxHealth && Time.time - lastDamageReceived > 5f)
         {
             currentHealth += regenRate * Time.deltaTime;
+            if(currentHealth > maxHealth)
+                currentHealth = maxHealth;
             UpdateHealthBar();
         }
     }

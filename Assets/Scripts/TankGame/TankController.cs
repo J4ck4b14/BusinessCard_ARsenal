@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.AI;
 using UnityEngine.InputSystem;
 
 public class TankController : MonoBehaviour
@@ -10,6 +11,7 @@ public class TankController : MonoBehaviour
     private float motorTorque;
 
     [SerializeField] private WeaponBase[] weapons;
+    [SerializeField] private NavMeshAgent agent;
 
     private void OnEnable()
     {
@@ -23,7 +25,7 @@ public class TankController : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-        
+
     }
 
     // Update is called once per frame
@@ -33,7 +35,11 @@ public class TankController : MonoBehaviour
         {
             HandlePlayerInput();
         }
-        
+        else
+        {
+            AIBehaviour();
+        }
+
     }
 
     private void HandlePlayerInput()
@@ -72,6 +78,31 @@ public class TankController : MonoBehaviour
         {
             if (weapons.Length > 1)
                 weapons[1].StopFire();
+        }
+    }
+
+    private void AIBehaviour()
+    {
+        if (agent == null) agent = GetComponent<NavMeshAgent>();
+
+        if (agent.destination == null)
+        {
+            agent.SetDestination(GameObject.FindGameObjectWithTag("Player").transform.position);
+            Debug.Log($"AI Tank setting destination to player position: {agent.destination}");
+        }
+
+        Ray ray = new Ray(transform.position, transform.forward);
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 80f))
+        {
+            if (hit.collider.CompareTag("Player"))
+            {
+                weapons[0].TryStartFire();
+            }
+            else
+            {
+                weapons[0].StopFire();
+            }
         }
     }
 }

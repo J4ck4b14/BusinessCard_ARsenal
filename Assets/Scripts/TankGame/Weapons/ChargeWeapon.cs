@@ -9,6 +9,24 @@ public class ChargeWeapon : WeaponBase
 
     private bool isCharging;
     private float chargeStartTime;
+    private ElectricProjectile currentProjectile;
+
+    private void Update()
+    {
+        if (isCharging)
+        {
+            
+            float heldTime = Mathf.Min(Time.time - chargeStartTime, maxChargeTime);
+            float chargePercent = heldTime / maxChargeTime;
+
+            // Keeping the projectile attached to the cannon
+            currentProjectile.transform.position = cannonEnd.position;
+            currentProjectile.transform.rotation = cannonEnd.rotation;
+    
+            // Update the projectile's damage and scale based on charge
+            currentProjectile.transform.localScale = Vector3.Lerp(Vector3.one, Vector3.one * currentProjectile.maxScaleMult, chargePercent);
+        }
+    }
 
     public override void TryStartFire()
     {
@@ -33,9 +51,9 @@ public class ChargeWeapon : WeaponBase
         float heldTime = Mathf.Min(Time.time - chargeStartTime, maxChargeTime);
         float chargePercent = heldTime / maxChargeTime;
 
-        ProjectileBase projectile = SpawnProjectile();
+        ElectricProjectile projectile = (ElectricProjectile)SpawnProjectile();
         if (projectile == null) return;
 
-        // TODO: Pass charge data into the projectile
+        projectile.Initialize(Mathf.Lerp(minDamage, maxDamage, chargePercent), chargePercent);
     }
 }

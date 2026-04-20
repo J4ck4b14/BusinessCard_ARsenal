@@ -5,7 +5,7 @@ using UnityEngine;
 public class ProjectileBase : MonoBehaviour
 {
     [SerializeField] protected float damage = 10f;
-    [SerializeField] protected float speed = 4f;
+    [SerializeField] protected float speed = 16f;
     [SerializeField] protected float lifetime = 5f;
     [SerializeField] protected bool destroyOnImpact = true;
     public Faction faction;
@@ -31,7 +31,7 @@ public class ProjectileBase : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if(other.gameObject.GetComponent<TankController>().faction.Equals(this.faction) == true)
+        if(other.gameObject.GetComponent<TankController>().faction == faction)
         {
             // Ignore collisions with the same faction
             return;
