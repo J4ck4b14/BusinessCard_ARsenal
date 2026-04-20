@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.XR.ARFoundation;
 using UnityEngine.XR.ARSubsystems;
 
-public class ImageTrackingAssigner : MonoBehaviour
+public sealed class ImageTrackingAssigner : MonoBehaviour
 {
     [System.Serializable]
     private struct TrackedContentBinding
@@ -16,12 +16,8 @@ public class ImageTrackingAssigner : MonoBehaviour
         public GameObject prefab;
     }
 
-    /// <summary>
-    /// Runtime record for a single spawned prefab keyed by `TrackableId`.
-    /// </summary>
     private sealed class TrackedInstance
     {
-        public string referenceImageName;
         public GameObject root;
         public ITrackedContentHandler handler;
         public Coroutine pendingLostRoutine;
@@ -47,15 +43,11 @@ public class ImageTrackingAssigner : MonoBehaviour
     [Tooltip("Delay before calling OnTrackingLost when the image briefly drops out of full tracking.")]
     [SerializeField] private float lostTrackingGraceSeconds = 0.15f;
 
-    // Lookup table built from `bindings` for quick resolve by reference image name.
     private readonly Dictionary<string, GameObject> prefabByImageName = new();
-
-    // Active spawned instances keyed by ARFoundation trackable id.
     private readonly Dictionary<TrackableId, TrackedInstance> instances = new();
 
     private void Reset()
     {
-        // Convenience: auto-wire when the component is added.
         trackedImageManager = GetComponent<ARTrackedImageManager>();
     }
 
@@ -66,7 +58,6 @@ public class ImageTrackingAssigner : MonoBehaviour
 
     private void OnValidate()
     {
-        // Prevent division by 0 / "never fills" behaviour.
         fillSpeed = Mathf.Max(0.001f, fillSpeed);
         lostTrackingGraceSeconds = Mathf.Max(0f, lostTrackingGraceSeconds);
         RebuildBindingLookup();
@@ -76,15 +67,13 @@ public class ImageTrackingAssigner : MonoBehaviour
     {
         if (trackedImageManager == null)
         {
-            Debug.LogError("ImageTrackingAssigner: Missing ARTrackedImageManager reference.");
+            Debug.LogError("ImageTrackingAssigner: Missing ARTrackedImageManager reference.", this);
             return;
         }
 
-        // Allow leaving this unassigned in the inspector.
         if (arCamera == null)
             arCamera = Camera.main;
 
-        // Subscribe to ARFoundation changes.
         trackedImageManager.trackablesChanged.AddListener(OnTrackedImagesChanged);
     }
 
@@ -96,30 +85,32 @@ public class ImageTrackingAssigner : MonoBehaviour
 
     private void OnDestroy()
     {
-        // Ensure spawned prefabs are destroyed when this manager is destroyed.
-        foreach (KeyValuePair<TrackableId, TrackedInstance> pair in instances)
+        foreach (var pair in instances)
         {
-            if (pair.Value == null)
+            var instance = pair.Value;
+            if (instance == null)
                 continue;
 
-            CancelPendingLost(pair.Value);
+            CancelPendingLost(instance);
 
-            if (pair.Value.root != null)
-                Destroy(pair.Value.root);
+            if (instance.root != null)
+                Destroy(instance.root);
         }
 
         instances.Clear();
     }
 
     /// <summary>
-    /// Builds/refreshes the `referenceImageName -> prefab` lookup.
-    /// Call this if you modify `bindings` at runtime.
+    /// Rebuilds the lookup dictionary that maps reference image names to their corresponding prefabs based on the current bindings. This method is called during `Awake` and `OnValidate` to ensure that any changes to the bindings are reflected in the lookup dictionary. It iterates through each binding, checks for valid reference image names and prefabs, and populates the `prefabByImageName` dictionary while logging warnings for any duplicate or invalid entries. This allows for efficient retrieval of prefabs based on tracked image names during runtime.
     /// </summary>
     private void RebuildBindingLookup()
     {
         prefabByImageName.Clear();
 
-        foreach (TrackedContentBinding binding in bindings)
+        if (bindings == null)
+            return;
+
+        foreach (var binding in bindings)
         {
             if (string.IsNullOrWhiteSpace(binding.referenceImageName))
                 continue;
@@ -129,7 +120,9 @@ public class ImageTrackingAssigner : MonoBehaviour
 
             if (prefabByImageName.ContainsKey(binding.referenceImageName))
             {
-                Debug.LogWarning($"ImageTrackingAssigner: Duplicate binding for \"{binding.referenceImageName}\". Keeping the first one.");
+                Debug.LogWarning(
+                    $"ImageTrackingAssigner: Duplicate binding for \"{binding.referenceImageName}\". Keeping the first one.",
+                    this);
                 continue;
             }
 
@@ -138,105 +131,106 @@ public class ImageTrackingAssigner : MonoBehaviour
     }
 
     /// <summary>
-    /// ARFoundation callback: added/updated/removed tracked images.
-    /// We treat added+updated similarly: (create if needed) then drive handler tracking state.
+    /// Main event handler for tracked image changes. This method is called whenever the ARTrackedImageManager detects changes in the set of tracked images, including additions, updates, and removals. It iterates through each category of change and calls the appropriate method to handle the creation or updating of content for added and updated images, as well as the removal of content for removed images. This centralizes the logic for responding to tracking changes and ensures that the correct actions are taken based on the type of change detected.
     /// </summary>
+    /// <param name="changes"></param>
     private void OnTrackedImagesChanged(ARTrackablesChangedEventArgs<ARTrackedImage> changes)
     {
-        foreach (ARTrackedImage trackedImage in changes.added)
+        foreach (var trackedImage in changes.added)
             CreateOrUpdateContent(trackedImage);
 
-        foreach (ARTrackedImage trackedImage in changes.updated)
+        foreach (var trackedImage in changes.updated)
             CreateOrUpdateContent(trackedImage);
 
-        // Note: `removed` is a NativeArray<KeyValuePair<TrackableId, ARTrackedImage>> in recent ARFoundation versions.
         foreach (var removed in changes.removed)
             RemoveContent(removed.Key);
     }
 
     /// <summary>
-    /// Ensures there is a spawned instance for the tracked image and forwards tracking state.
+    /// This method handles both the creation of new content for newly detected images and the updating of existing content for images that are still being tracked. When an image is added or updated, it checks if there is a corresponding prefab for the reference image name. If there is no existing instance for the tracked image, it creates one using the associated prefab. Then it builds the context and checks the tracking state. If the image is currently being tracked, it cancels any pending loss routine and calls `OnTrackingFound` on the handler. If the image is not currently tracked, it schedules a call to `OnTrackingLost` after a grace period to debounce brief tracking dropouts.
     /// </summary>
+    /// <param name="trackedImage"></param>
     private void CreateOrUpdateContent(ARTrackedImage trackedImage)
     {
         if (trackedImage == null)
             return;
 
-        // IMPORTANT: binding key is `XRReferenceImage.name`.
-        string imageName = trackedImage.referenceImage.name;
-
-        if (!prefabByImageName.TryGetValue(imageName, out GameObject prefab) || prefab == null)
-        {
-            Debug.LogWarning($"ImageTrackingAssigner: No prefab bound for reference image \"{imageName}\".");
+        var imageName = trackedImage.referenceImage.name;
+        if (!prefabByImageName.TryGetValue(imageName, out var prefab) || prefab == null)
             return;
-        }
 
-        // Create the instance on first sighting (or if it was destroyed unexpectedly).
-        if (!instances.TryGetValue(trackedImage.trackableId, out TrackedInstance instance) ||
-            instance == null ||
-            instance.root == null)
+        var trackableId = trackedImage.trackableId;
+
+        if (!instances.TryGetValue(trackableId, out var instance) || instance == null || instance.root == null)
         {
-            instance = CreateInstance(trackedImage, imageName, prefab);
-
+            instance = CreateInstance(trackedImage, prefab, imageName);
             if (instance == null)
                 return;
 
-            instances[trackedImage.trackableId] = instance;
+            instances[trackableId] = instance;
         }
 
-        // Context can change if inspector fields are updated or camera changes.
-        TrackedContentContext context = BuildContext(trackedImage);
-        bool isTracked = trackedImage.trackingState == TrackingState.Tracking;
+        var context = BuildContext(trackedImage);
+        var isTracked = trackedImage.trackingState == TrackingState.Tracking;
 
-        // Drive behaviour based on tracking state.
         if (isTracked)
+        {
+            // If a loss was pending, tracking came back before grace elapsed.
+            CancelPendingLost(instance);
             instance.handler.OnTrackingFound(context);
+        }
         else
-            instance.handler.OnTrackingLost();
+        {
+            // Debounce brief tracking dropouts.
+            ScheduleTrackingLost(trackableId, instance);
+        }
     }
 
     /// <summary>
-    /// Instantiates the prefab as a child of the tracked image transform and finds the handler.
+    /// Creates a new instance of the prefab associated with the tracked image and initializes its handler. This method instantiates the prefab as a child of the tracked image's transform, applies the specified local position, rotation, and scale offsets, and then searches for a component that implements `ITrackedContentHandler` within the instantiated hierarchy. If a valid handler is found, it is initialized with the context built from the tracked image. The method returns a `TrackedInstance` object containing references to the root GameObject, the handler, and any pending loss routine (initially null). If there are any issues during this process (e.g., no handler found), it logs an error and returns null.
     /// </summary>
-    private TrackedInstance CreateInstance(ARTrackedImage trackedImage, string imageName, GameObject prefab)
+    /// <param name="trackedImage"></param>
+    /// <param name="prefab"></param>
+    /// <param name="imageName"></param>
+    /// <returns></returns>
+    private TrackedInstance CreateInstance(ARTrackedImage trackedImage, GameObject prefab, string imageName)
     {
-        // Spawn under the tracked image so it inherits motion/pose while tracking.
-        GameObject root = Instantiate(prefab, trackedImage.transform);
+        var root = Instantiate(prefab, trackedImage.transform);
         root.name = $"{prefab.name}_For_{trackedImage.trackableId}";
 
-        // Apply local offsets controlled by this manager.
         root.transform.localPosition = contentLocalPosition;
         root.transform.localRotation = Quaternion.Euler(contentLocalEulerAngles);
         root.transform.localScale = contentLocalScale;
 
-        // Expect the prefab to contain exactly one component that implements ITrackedContentHandler.
-        ITrackedContentHandler handler = FindHandler(root);
-
+        var handler = FindHandler(root);
         if (handler == null)
         {
             Debug.LogError(
-                $"ImageTrackingAssigner: Prefab \"{prefab.name}\" for image \"{imageName}\" needs a component that implements ITrackedContentHandler.");
+                $"ImageTrackingAssigner: Prefab \"{prefab.name}\" for image \"{imageName}\" needs a component that implements {nameof(ITrackedContentHandler)}.",
+                this);
             Destroy(root);
             return null;
         }
 
-        // One-time initialization hook (see `TrackedContentHandlerBase.Initialize`).
         handler.Initialize(BuildContext(trackedImage));
 
         return new TrackedInstance
         {
-            referenceImageName = imageName,
             root = root,
             handler = handler,
             pendingLostRoutine = null
         };
     }
 
-    private ITrackedContentHandler FindHandler(GameObject root)
+    /// <summary>
+    /// Interface search utility. This method looks for any component in the prefab instance hierarchy that implements `ITrackedContentHandler` and returns the first one found. This allows for flexibility in prefab design, as the handler can be on the root GameObject or any child, but it also enforces that there must be exactly one handler component somewhere in the hierarchy to manage the tracked content's behavior.
+    /// </summary>
+    /// <param name="root"></param>
+    /// <returns></returns>
+    private static ITrackedContentHandler FindHandler(GameObject root)
     {
-        MonoBehaviour[] behaviours = root.GetComponentsInChildren<MonoBehaviour>(true);
-
-        foreach (MonoBehaviour behaviour in behaviours)
+        var behaviours = root.GetComponentsInChildren<MonoBehaviour>(true);
+        foreach (var behaviour in behaviours)
         {
             if (behaviour is ITrackedContentHandler handler)
                 return handler;
@@ -245,9 +239,14 @@ public class ImageTrackingAssigner : MonoBehaviour
         return null;
     }
 
+    /// <summary>
+    /// Schedules the invocation of the `OnTrackingLost` method for a specific trackable ID after a predefined grace period. If tracking is lost for an image, this method checks if there is already a pending routine to call `OnTrackingLost` and if not, it starts a coroutine that will wait for the specified number of seconds before invoking the loss handler. If tracking is regained before the grace period elapses, the pending routine will be canceled to prevent calling `OnTrackingLost` erroneously. This allows for brief tracking dropouts without immediately treating them as lost, providing a smoother user experience.
+    /// </summary>
+    /// <param name="trackableId"></param>
+    /// <param name="instance"></param>
     private void ScheduleTrackingLost(TrackableId trackableId, TrackedInstance instance)
     {
-        if (instance == null)
+        if (instance == null || instance.handler == null)
             return;
 
         if (instance.pendingLostRoutine != null)
@@ -262,17 +261,26 @@ public class ImageTrackingAssigner : MonoBehaviour
         instance.pendingLostRoutine = StartCoroutine(DelayedTrackingLost(trackableId));
     }
 
+    /// <summary>
+    /// Delays the invocation of the `OnTrackingLost` method for a specific trackable ID by a predefined grace period. This coroutine is started when tracking is lost for an image, and it waits for the specified number of seconds before checking if the instance still exists and if tracking has not been regained. If the instance is still valid and tracking has not come back, it calls the handler's `OnTrackingLost` method to notify that the image is considered lost. This allows for brief tracking dropouts without immediately treating them as lost, providing a smoother user experience.
+    /// </summary>
+    /// <param name="trackableId"></param>
+    /// <returns></returns>
     private IEnumerator DelayedTrackingLost(TrackableId trackableId)
     {
         yield return new WaitForSeconds(lostTrackingGraceSeconds);
 
-        if (!instances.TryGetValue(trackableId, out TrackedInstance instance) || instance == null)
+        if (!instances.TryGetValue(trackableId, out var instance) || instance == null)
             yield break;
 
         instance.pendingLostRoutine = null;
         instance.handler.OnTrackingLost();
     }
 
+    /// <summary>
+    /// Cancels any pending tracking lost routine for the given instance. This is called when tracking is regained before the grace period elapses, ensuring that the `OnTrackingLost` method is not called erroneously after tracking has already been restored. The method checks if there is an active coroutine for pending loss and stops it if necessary, then clears the reference to indicate that there is no longer a pending loss.
+    /// </summary>
+    /// <param name="instance"></param>
     private void CancelPendingLost(TrackedInstance instance)
     {
         if (instance == null || instance.pendingLostRoutine == null)
@@ -282,15 +290,13 @@ public class ImageTrackingAssigner : MonoBehaviour
         instance.pendingLostRoutine = null;
     }
 
-
     /// <summary>
-    /// Handles trackable removal by delegating to the handler.
-    /// The handler is responsible for calling back into <see cref="DestroyInstance"/>
-    /// (immediately or after a hide animation).
+    /// Removes the content associated with the given trackable ID. This is called when an image is removed from tracking (e.g., it goes out of view or is otherwise lost). The method checks if there is an existing instance for the trackable ID, and if so, it calls the handler's `OnTrackableRemoved` method, passing a callback that will destroy the instance once any necessary cleanup is done by the handler. If there is no instance or if the instance's root GameObject is already null, it simply removes the entry from the `instances` dictionary.
     /// </summary>
+    /// <param name="trackableId"></param>
     private void RemoveContent(TrackableId trackableId)
     {
-        if (!instances.TryGetValue(trackableId, out TrackedInstance instance) || instance == null)
+        if (!instances.TryGetValue(trackableId, out var instance) || instance == null)
         {
             instances.Remove(trackableId);
             return;
@@ -308,11 +314,12 @@ public class ImageTrackingAssigner : MonoBehaviour
     }
 
     /// <summary>
-    /// Finalizes destruction and removes the instance from the dictionary.
+    /// Destroys the instance associated with the given trackable ID, removing it from the `instances` dictionary. This is meant to be called as a callback from `OnTrackableRemoved`, ensuring that any necessary cleanup or final actions can be performed by the handler before the GameObject is destroyed and the instance is removed from tracking.
     /// </summary>
+    /// <param name="trackableId"></param>
     private void DestroyInstance(TrackableId trackableId)
     {
-        if (!instances.TryGetValue(trackableId, out TrackedInstance instance) || instance == null)
+        if (!instances.TryGetValue(trackableId, out var instance) || instance == null)
         {
             instances.Remove(trackableId);
             return;
@@ -327,8 +334,10 @@ public class ImageTrackingAssigner : MonoBehaviour
     }
 
     /// <summary>
-    /// Creates a context snapshot passed into handler calls.
+    /// This method builds the context object passed to handlers, ensuring consistency across all handler calls and centralizing the logic for how local offsets are applied.
     /// </summary>
+    /// <param name="trackedImage"></param>
+    /// <returns></returns>
     private TrackedContentContext BuildContext(ARTrackedImage trackedImage)
     {
         return new TrackedContentContext(

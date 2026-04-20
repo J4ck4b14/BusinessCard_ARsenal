@@ -1,10 +1,11 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
+using UnityEngine.InputSystem;
 
 public class ARWorldTouchInput : MonoBehaviour
 {
     [SerializeField] private Camera arCamera;
-    [SerializeField] private LayerMask interactableLayerMask = ~0;
+    [SerializeField] private LayerMask interactableMask = ~0;
 
     private void Awake()
     {
@@ -14,41 +15,61 @@ public class ARWorldTouchInput : MonoBehaviour
 
     private void Update()
     {
-        if (Input.touchCount <= 0)
+        HandleTouch();
+        HandleMouse();
+    }
+
+    private void HandleTouch()
+    {
+        if (Touchscreen.current == null)
             return;
 
-        Touch touch = Input.GetTouch(0);
+        var touch = Touchscreen.current.primaryTouch;
 
-        if (touch.phase != TouchPhase.Began)
+        if (!touch.press.wasPressedThisFrame)
             return;
 
-        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject(touch.fingerId))
+        Vector2 screenPos = touch.position.ReadValue();
+
+        if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
             return;
 
-        Ray ray = arCamera.ScreenPointToRay(touch.position);
+        TryPressAt(screenPos);
+    }
 
-        if (Physics.Raycast(ray, out RaycastHit hit, 100f, interactableLayerMask))
+    private void HandleMouse()
+    {
+#if UNITY_EDITOR || UNITY_STANDALONE
+        if (Mouse.current == null)
+            return;
+
+        if (!Mouse.current.leftButton.wasPressedThisFrame)
+            return;
+
+        Vector2 screenPos = Mouse.current.position.ReadValue();
+        TryPressAt(screenPos);
+#endif
+    }
+
+    private void TryPressAt(Vector2 screenPos)
+    {
+        Ray ray = arCamera.ScreenPointToRay(screenPos);
+
+        if (Physics.Raycast(ray, out RaycastHit hit, 100f, interactableMask))
         {
             ArsenalInteractable interactable = hit.collider.GetComponentInParent<ArsenalInteractable>();
-
             if (interactable != null)
-                interactable.Press();
-        }
-
-#if UNITY_EDITOR
-        // For testing in the editor with mouse input
-        if (Input.GetMouseButtonDown(0))
-        {
-            if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
-                return;
-            Ray mouseRay = arCamera.ScreenPointToRay(Input.mousePosition);
-            if (Physics.Raycast(mouseRay, out RaycastHit mouseHit, 100f, interactableLayerMask))
             {
-                ArsenalInteractable interactable = mouseHit.collider.GetComponentInParent<ArsenalInteractable>();
-                if (interactable != null)
-                    interactable.Press();
+                interactable.Press();
+                return;
+            }
+
+            BoardSurfaceClickReceiver boardSurface = hit.collider.GetComponentInParent<BoardSurfaceClickReceiver>();
+            if (boardSurface != null)
+            {
+                boardSurface.ReceiveBoardHit(hit.point);
+                return;
             }
         }
-#endif
     }
 }

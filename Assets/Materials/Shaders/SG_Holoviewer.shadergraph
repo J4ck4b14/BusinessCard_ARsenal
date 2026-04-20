@@ -2391,10 +2391,10 @@
         "m_Expanded": true,
         "m_Position": {
             "serializedVersion": "2",
-            "x": -416.0,
-            "y": 340.0,
-            "width": 208.0,
-            "height": 302.0
+            "x": -429.0000305175781,
+            "y": 340.0000305175781,
+            "width": 207.99998474121095,
+            "height": 302.0000305175781
         }
     },
     "m_Slots": [
@@ -6710,7 +6710,7 @@
     "m_StageCapability": 3,
     "m_Value": {
         "x": 1.0,
-        "y": 0.0
+        "y": 0.10000000149011612
     },
     "m_DefaultValue": {
         "x": 0.0,

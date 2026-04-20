@@ -26,6 +26,7 @@ public class BackTrackedContentHandler : TrackedContentHandlerBase
     [SerializeField] private GameObject boardRoot;
     [SerializeField] private GameObject galleryRoot;
     [SerializeField] private GameObject coinRoot;
+    [SerializeField] private GameObject gameViewportRoot;
 
     [Header("Debug / initial state")]
     [SerializeField] private BackBoardState initialTrackedState = BackBoardState.Idle;
@@ -48,7 +49,7 @@ public class BackTrackedContentHandler : TrackedContentHandlerBase
         if (boardRoot == null)
             boardRoot = visibilityRoot;
 
-        SetState(BackBoardState.Hidden, force: true);
+        ApplyVisualState(forceShow: false);
     }
 
     /// <inheritdoc/>
@@ -63,9 +64,9 @@ public class BackTrackedContentHandler : TrackedContentHandlerBase
         isVisible = true;
 
         if (currentState == BackBoardState.Hidden)
-            SetState(initialTrackedState, force: true);
-        else
-            ApplyStateVisuals();
+            currentState = BackBoardState.Idle;
+
+        ApplyVisualState(forceShow: true);
     }
 
     /// <inheritdoc/>
@@ -81,10 +82,8 @@ public class BackTrackedContentHandler : TrackedContentHandlerBase
         // This keeps the last world pose if the tracked image transform disappears.
         DetachKeepWorldPose();
 
-        if (visibilityRoot != null)
-            visibilityRoot.SetActive(false);
-
         isVisible = false;
+        ApplyVisualState(forceShow: false);
     }
 
     /// <inheritdoc/>
@@ -136,35 +135,51 @@ public class BackTrackedContentHandler : TrackedContentHandlerBase
         // Future pause logic here.
     }
 
-    private void SetState(BackBoardState newState, bool force = false)
+    /// <summary>
+    /// Set the current state and apply visual changes.
+    /// </summary>
+    /// <param name="newState"></param>
+    private void SetState(BackBoardState newState)
     {
-        if (!force && currentState == newState)
+        if (currentState == newState)
             return;
 
         currentState = newState;
-        ApplyStateVisuals();
+        ApplyVisualState(forceShow: isVisible);
     }
 
-    private void ApplyStateVisuals()
+    /// <summary>
+    /// Toggle visibility of root objects based on the current state.
+    /// </summary>
+    /// <param name="forceShow"></param>
+    private void ApplyVisualState(bool forceShow)
     {
+        bool rootVisible = forceShow && currentState != BackBoardState.Hidden;
+
         if (visibilityRoot != null)
-            visibilityRoot.SetActive(isVisible && currentState != BackBoardState.Hidden);
+            visibilityRoot.SetActive(rootVisible);
 
-        bool showBoard = isVisible &&
-                         (currentState == BackBoardState.Idle ||
-                          currentState == BackBoardState.GalleryOpen ||
-                          currentState == BackBoardState.Playing);
+        if (!rootVisible)
+            return;
 
-        bool showGallery = isVisible && currentState == BackBoardState.GalleryOpen;
-        bool showCoins = isVisible && currentState == BackBoardState.Idle;
+        bool showBoard = currentState == BackBoardState.Idle ||
+                         currentState == BackBoardState.GalleryOpen ||
+                         currentState == BackBoardState.Playing;
+
+        bool showCoins = currentState == BackBoardState.Idle;
+        bool showGallery = currentState == BackBoardState.GalleryOpen;
+        bool showViewport = currentState == BackBoardState.Playing;
 
         if (boardRoot != null)
             boardRoot.SetActive(showBoard);
 
+        if (coinRoot != null)
+            coinRoot.SetActive(showCoins);
+
         if (galleryRoot != null)
             galleryRoot.SetActive(showGallery);
 
-        if (coinRoot != null)
-            coinRoot.SetActive(showCoins);
+        if (gameViewportRoot != null)
+            gameViewportRoot.SetActive(showViewport);
     }
 }
