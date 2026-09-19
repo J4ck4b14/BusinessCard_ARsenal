@@ -9,7 +9,7 @@ public class ChargeWeapon : WeaponBase
 
     private bool isCharging;
     private float chargeStartTime;
-    private ElectricProjectile currentProjectile;
+    [SerializeField] private ElectricProjectile currentProjectile;
 
     private void Update()
     {
@@ -18,6 +18,11 @@ public class ChargeWeapon : WeaponBase
             
             float heldTime = Mathf.Min(Time.time - chargeStartTime, maxChargeTime);
             float chargePercent = heldTime / maxChargeTime;
+            if(currentProjectile == null)
+            {
+                currentProjectile = (ElectricProjectile)SpawnProjectile();
+                currentProjectile.Initialize(Mathf.Lerp(minDamage, maxDamage, chargePercent), chargePercent);
+            }
 
             // Keeping the projectile attached to the cannon
             currentProjectile.transform.position = cannonEnd.position;

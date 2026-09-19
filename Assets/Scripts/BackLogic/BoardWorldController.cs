@@ -1,32 +1,46 @@
+using System;
 using UnityEngine;
-using UnityEngine.InputSystem;
 
 public class BoardWorldController : MonoBehaviour
 {
     [Header("References")]
     [SerializeField] private Transform playerVisualRoot;
+    [SerializeField] private ChunkManager chunkManager;
 
     [Header("Board viewport")]
     [SerializeField] private float boardHalfWidth = 4f;
     [SerializeField] private float boardHalfHeight = 2.5f;
 
-    [Header("Editor-only movement")]
-    [SerializeField] private float editorMoveSpeed = 4f;
+    [Header("Collision")]
+    [SerializeField] private float playerCollisionRadius = 0.28f;
+    [SerializeField] private float lineOfSightSampleSpacing = 0.2f;
 
     private Vector2 playerWorldPosition;
     private bool simulationActive;
+
+    public event Action<Vector2> PlayerWorldPositionChanged;
 
     public Vector2 PlayerWorldPosition => playerWorldPosition;
     public float BoardHalfWidth => boardHalfWidth;
     public float BoardHalfHeight => boardHalfHeight;
     public bool SimulationActive => simulationActive;
 
-    [SerializeField] private bool debugShowOffBoardEntities = true;
+    [SerializeField] private bool debugShowOffBoardEntities = false;
     public bool DebugShowOffBoardEntities => debugShowOffBoardEntities;
+
+    private void Awake()
+    {
+        if (chunkManager == null)
+        {
+            BackTrackedContentHandler root = GetComponentInParent<BackTrackedContentHandler>(true);
+            if (root != null)
+                chunkManager = root.GetComponentInChildren<ChunkManager>(true);
+        }
+    }
 
     public void BeginRun()
     {
-        playerWorldPosition = Vector2.zero;
+        SetPlayerWorldPosition(Vector2.zero);
 
         if (playerVisualRoot != null)
             playerVisualRoot.localPosition = Vector3.zero;
@@ -39,12 +53,53 @@ public class BoardWorldController : MonoBehaviour
 
     public void SetPlayerWorldPosition(Vector2 newWorldPosition)
     {
+        if (playerWorldPosition == newWorldPosition)
+            return;
+
         playerWorldPosition = newWorldPosition;
+        PlayerWorldPositionChanged?.Invoke(playerWorldPosition);
+    }
+
+    public bool TryMovePlayerWorld(Vector2 delta)
+    {
+        Vector2 candidate = playerWorldPosition + delta;
+
+        if (IsObstacleBlocked(candidate, playerCollisionRadius))
+            return false;
+
+        SetPlayerWorldPosition(candidate);
+        return true;
     }
 
     public void MovePlayerWorld(Vector2 delta)
     {
-        playerWorldPosition += delta;
+        TryMovePlayerWorld(delta);
+    }
+
+    public bool IsObstacleBlocked(Vector2 worldPosition, float radius = 0f)
+    {
+        return chunkManager != null && chunkManager.IsBlocked(worldPosition, radius);
+    }
+
+    // Sample the path against the same obstacle data used for movement.
+    public bool HasClearLine(Vector2 from, Vector2 to, float radius = 0.04f)
+    {
+        Vector2 delta = to - from;
+        float distance = delta.magnitude;
+        if (distance <= 0.001f)
+            return true;
+
+        float spacing = Mathf.Max(0.05f, lineOfSightSampleSpacing);
+        int samples = Mathf.Max(1, Mathf.CeilToInt(distance / spacing));
+
+        for (int i = 1; i < samples; i++)
+        {
+            Vector2 point = Vector2.Lerp(from, to, i / (float)samples);
+            if (IsObstacleBlocked(point, radius))
+                return false;
+        }
+
+        return true;
     }
 
     public Vector3 WorldToBoardLocal(Vector2 worldPosition, float worldY = 0f)
@@ -64,27 +119,6 @@ public class BoardWorldController : MonoBehaviour
 
         return Mathf.Abs(relative.x) <= boardHalfWidth + padding.x &&
                Mathf.Abs(relative.y) <= boardHalfHeight + padding.y;
-    }
-
-    private void Update()
-    {
-#if UNITY_EDITOR
-        if (!simulationActive || Keyboard.current == null)
-            return;
-
-        Vector2 input = Vector2.zero;
-
-        if (Keyboard.current.aKey.isPressed) input.x -= 1f;
-        if (Keyboard.current.dKey.isPressed) input.x += 1f;
-        if (Keyboard.current.sKey.isPressed) input.y -= 1f;
-        if (Keyboard.current.wKey.isPressed) input.y += 1f;
-
-        if (input.sqrMagnitude > 1f)
-            input.Normalize();
-
-        if (input != Vector2.zero)
-            MovePlayerWorld(input * editorMoveSpeed * Time.deltaTime);
-#endif
     }
 
     private void OnDrawGizmosSelected()

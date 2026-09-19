@@ -1,11 +1,13 @@
 using System.Collections.Generic;
 using UnityEngine;
 
+// Obstacles are deterministic inside one wave, then reseeded for the next one.
 public class ChunkManager : MonoBehaviour
 {
     private sealed class ChunkRecord
     {
         public GameObject root;
+        public readonly List<Vector2Int> occupiedCells = new();
     }
 
     [Header("References")]
@@ -22,15 +24,31 @@ public class ChunkManager : MonoBehaviour
     [Header("Generation")]
     [Range(0f, 1f)]
     [SerializeField] private float obstacleChance = 0.18f;
-    [SerializeField] private float playerStartSafeRadius = 2.5f;
+    [SerializeField] private float playerStartSafeRadius = 1.25f;
+    [Range(0.1f, 0.5f)]
+    [SerializeField] private float obstacleHalfExtentInCells = 0.42f;
 
     private readonly Dictionary<Vector2Int, ChunkRecord> activeChunks = new();
+    private readonly HashSet<Vector2Int> occupiedCells = new();
+
     private Vector2Int currentCenterChunk;
     private bool hasCenterChunk;
+    private int currentWaveSeed;
 
     private void Reset()
     {
         boardWorldController = GetComponentInParent<BoardWorldController>();
+    }
+
+    private void Awake()
+    {
+        currentWaveSeed = worldSeed;
+    }
+
+    private void OnEnable()
+    {
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged += OnPlayerWorldPositionChanged;
     }
 
     private void Start()
@@ -38,9 +56,20 @@ public class ChunkManager : MonoBehaviour
         RefreshAroundPlayer(force: true);
     }
 
-    private void Update()
+    private void OnDisable()
     {
-        RefreshAroundPlayer(force: false);
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged -= OnPlayerWorldPositionChanged;
+    }
+
+    public void RebuildForWave(int waveIndex)
+    {
+        unchecked
+        {
+            currentWaveSeed = worldSeed ^ (waveIndex * 73856093);
+        }
+
+        RebuildAll();
     }
 
     public void RebuildAll()
@@ -52,8 +81,53 @@ public class ChunkManager : MonoBehaviour
         }
 
         activeChunks.Clear();
+        occupiedCells.Clear();
         hasCenterChunk = false;
         RefreshAroundPlayer(force: true);
+    }
+
+    public bool IsBlocked(Vector2 worldPoint, float radius = 0f)
+    {
+        if (cellSize <= 0f || occupiedCells.Count == 0)
+            return false;
+
+        int centerX = Mathf.FloorToInt(worldPoint.x / cellSize);
+        int centerY = Mathf.FloorToInt(worldPoint.y / cellSize);
+
+        int searchRadius = Mathf.Max(1, Mathf.CeilToInt((radius + cellSize * obstacleHalfExtentInCells) / cellSize));
+        float halfExtent = cellSize * obstacleHalfExtentInCells;
+
+        for (int y = -searchRadius; y <= searchRadius; y++)
+        {
+            for (int x = -searchRadius; x <= searchRadius; x++)
+            {
+                Vector2Int cell = new(centerX + x, centerY + y);
+                if (!occupiedCells.Contains(cell))
+                    continue;
+
+                Vector2 obstacleCenter = CellToWorldCenter(cell);
+                Vector2 delta = worldPoint - obstacleCenter;
+
+                float nearestX = Mathf.Clamp(delta.x, -halfExtent, halfExtent);
+                float nearestY = Mathf.Clamp(delta.y, -halfExtent, halfExtent);
+                Vector2 nearest = obstacleCenter + new Vector2(nearestX, nearestY);
+
+                if ((worldPoint - nearest).sqrMagnitude <= radius * radius + 0.000001f)
+                    return true;
+
+                if (radius <= 0f &&
+                    Mathf.Abs(delta.x) <= halfExtent &&
+                    Mathf.Abs(delta.y) <= halfExtent)
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void OnPlayerWorldPositionChanged(Vector2 _)
+    {
+        RefreshAroundPlayer(force: false);
     }
 
     private void RefreshAroundPlayer(bool force)
@@ -75,7 +149,7 @@ public class ChunkManager : MonoBehaviour
         {
             for (int x = -activeChunkRadius; x <= activeChunkRadius; x++)
             {
-                Vector2Int coord = new Vector2Int(currentCenterChunk.x + x, currentCenterChunk.y + y);
+                Vector2Int coord = new(currentCenterChunk.x + x, currentCenterChunk.y + y);
                 required.Add(coord);
 
                 if (!activeChunks.ContainsKey(coord))
@@ -97,28 +171,34 @@ public class ChunkManager : MonoBehaviour
 
     private void CreateChunk(Vector2Int chunkCoord)
     {
-        GameObject chunkRoot = new GameObject($"Chunk_{chunkCoord.x}_{chunkCoord.y}");
+        GameObject chunkRoot = new($"Chunk_{chunkCoord.x}_{chunkCoord.y}");
         chunkRoot.transform.SetParent(obstaclesRoot, false);
 
-        float chunkWorldSize = chunkSizeInCells * cellSize;
-        Vector2 chunkOrigin = new Vector2(chunkCoord.x * chunkWorldSize, chunkCoord.y * chunkWorldSize);
+        ChunkRecord record = new() { root = chunkRoot };
 
         for (int cy = 0; cy < chunkSizeInCells; cy++)
         {
             for (int cx = 0; cx < chunkSizeInCells; cx++)
             {
-                Vector2 cellCenter = chunkOrigin + new Vector2(
-                    (cx + 0.5f) * cellSize,
-                    (cy + 0.5f) * cellSize);
+                Vector2Int globalCell = new(
+                    chunkCoord.x * chunkSizeInCells + cx,
+                    chunkCoord.y * chunkSizeInCells + cy);
 
-                if (cellCenter.sqrMagnitude <= playerStartSafeRadius * playerStartSafeRadius)
+                Vector2 cellCenter = CellToWorldCenter(globalCell);
+
+                // Keep the player's current position playable when a new wave rebuilds the field.
+                Vector2 playerPosition = boardWorldController.PlayerWorldPosition;
+                if ((cellCenter - playerPosition).sqrMagnitude <= playerStartSafeRadius * playerStartSafeRadius)
                     continue;
 
-                if (!ShouldPlaceObstacle(chunkCoord, cx, cy))
+                if (!ShouldPlaceObstacle(globalCell))
                     continue;
+
+                occupiedCells.Add(globalCell);
+                record.occupiedCells.Add(globalCell);
 
                 WorldEntityView obstacle = Instantiate(obstacleViewPrefab, chunkRoot.transform);
-                obstacle.name = $"Obstacle_{chunkCoord.x}_{chunkCoord.y}_{cx}_{cy}";
+                obstacle.name = $"Obstacle_{globalCell.x}_{globalCell.y}";
                 obstacle.Bind(boardWorldController);
                 obstacle.SetWorldPosition(cellCenter);
                 obstacle.SetWorldY(0f);
@@ -126,10 +206,7 @@ public class ChunkManager : MonoBehaviour
             }
         }
 
-        activeChunks.Add(chunkCoord, new ChunkRecord
-        {
-            root = chunkRoot
-        });
+        activeChunks.Add(chunkCoord, record);
     }
 
     private void RemoveChunk(Vector2Int chunkCoord)
@@ -137,8 +214,14 @@ public class ChunkManager : MonoBehaviour
         if (!activeChunks.TryGetValue(chunkCoord, out ChunkRecord record))
             return;
 
-        if (record != null && record.root != null)
-            Destroy(record.root);
+        if (record != null)
+        {
+            foreach (Vector2Int cell in record.occupiedCells)
+                occupiedCells.Remove(cell);
+
+            if (record.root != null)
+                Destroy(record.root);
+        }
 
         activeChunks.Remove(chunkCoord);
     }
@@ -152,15 +235,20 @@ public class ChunkManager : MonoBehaviour
             Mathf.FloorToInt(worldPosition.y / chunkWorldSize));
     }
 
-    private bool ShouldPlaceObstacle(Vector2Int chunkCoord, int cellX, int cellY)
+    private Vector2 CellToWorldCenter(Vector2Int cell)
+    {
+        return new Vector2(
+            (cell.x + 0.5f) * cellSize,
+            (cell.y + 0.5f) * cellSize);
+    }
+
+    private bool ShouldPlaceObstacle(Vector2Int globalCell)
     {
         uint h = 2166136261u;
 
-        h = Mix(h, (uint)worldSeed);
-        h = Mix(h, (uint)chunkCoord.x);
-        h = Mix(h, (uint)chunkCoord.y);
-        h = Mix(h, (uint)cellX);
-        h = Mix(h, (uint)cellY);
+        h = Mix(h, (uint)currentWaveSeed);
+        h = Mix(h, (uint)globalCell.x);
+        h = Mix(h, (uint)globalCell.y);
 
         float normalized = (h % 10000u) / 10000f;
         return normalized < obstacleChance;

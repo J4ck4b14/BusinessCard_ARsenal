@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 
 public class ShieldWallController : MonoBehaviour
@@ -7,14 +8,18 @@ public class ShieldWallController : MonoBehaviour
     [SerializeField] private float lifetime = 10f;
     [SerializeField] private float boardYOffset = 0.05f;
     [SerializeField] private Vector2 visibilityPadding = new(1f, 1f);
+    [SerializeField] private float lifetimeTick = 0.05f;
 
     private BoardWorldController boardWorldController;
     private Vector2 centerWorldPosition;
     private float yawDegrees;
     private float remainingLife;
+    private Coroutine lifetimeCoroutine;
 
     public void Initialize(BoardWorldController controller, Vector2 worldPosition, float yaw, float lifeTimeSeconds)
     {
+        Unsubscribe();
+
         boardWorldController = controller;
         centerWorldPosition = worldPosition;
         yawDegrees = yaw;
@@ -22,6 +27,17 @@ public class ShieldWallController : MonoBehaviour
 
         if (visualRoot == null)
             visualRoot = gameObject;
+
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged += OnPlayerWorldPositionChanged;
+
+        RefreshVisual();
+        lifetimeCoroutine = StartCoroutine(LifetimeCoroutine());
+    }
+
+    private void OnDestroy()
+    {
+        Unsubscribe();
     }
 
     public bool BlocksEnemy(Vector2 worldPoint)
@@ -36,23 +52,33 @@ public class ShieldWallController : MonoBehaviour
                Mathf.Abs(localZ) <= blockSize.y * 0.5f;
     }
 
-    private void Update()
+    private IEnumerator LifetimeCoroutine()
     {
-        if (boardWorldController == null)
+        WaitForSeconds wait = new(Mathf.Max(0.01f, lifetimeTick));
+
+        while (boardWorldController != null && remainingLife > 0f)
         {
-            Destroy(gameObject);
-            return;
+            if (boardWorldController.SimulationActive)
+                remainingLife -= Mathf.Max(0.01f, lifetimeTick);
+
+            yield return wait;
         }
 
-        if (boardWorldController.SimulationActive)
-        {
-            remainingLife -= Time.deltaTime;
-            if (remainingLife <= 0f)
-            {
-                Destroy(gameObject);
-                return;
-            }
-        }
+        lifetimeCoroutine = null;
+
+        if (this != null && gameObject != null)
+            Destroy(gameObject);
+    }
+
+    private void OnPlayerWorldPositionChanged(Vector2 _)
+    {
+        RefreshVisual();
+    }
+
+    private void RefreshVisual()
+    {
+        if (boardWorldController == null)
+            return;
 
         bool visible = boardWorldController.IsWorldPositionVisible(centerWorldPosition, visibilityPadding);
         bool forceShow = boardWorldController.DebugShowOffBoardEntities;
@@ -62,5 +88,11 @@ public class ShieldWallController : MonoBehaviour
 
         transform.localPosition = boardWorldController.WorldToBoardLocal(centerWorldPosition, boardYOffset);
         transform.localRotation = Quaternion.Euler(0f, yawDegrees, 0f);
+    }
+
+    private void Unsubscribe()
+    {
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged -= OnPlayerWorldPositionChanged;
     }
 }

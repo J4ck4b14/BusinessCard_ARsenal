@@ -20,6 +20,7 @@ public class BoardGameController : MonoBehaviour
     [SerializeField] private PlayerTankController playerTankController;
     [SerializeField] private WaveDirector waveDirector;
     [SerializeField] private ShieldPlacementController shieldPlacementController;
+    [SerializeField] private ChunkManager chunkManager;
 
     [Header("Optional helpers")]
     [SerializeField] private BoardGameUiBinder ui;
@@ -27,13 +28,16 @@ public class BoardGameController : MonoBehaviour
 
     [Header("Flow")]
     [SerializeField] private float countdownStep = 0.7f;
+    [SerializeField] private float waveClearDuration = 0.8f;
     [SerializeField] private int firstWaveIndex = 1;
     [SerializeField] private int baseWaveScore = 100;
 
     private Coroutine countdownCoroutine;
+    private Coroutine waveTransitionCoroutine;
     private BoardGameState currentState;
     private int currentWaveIndex;
     private int currentScore;
+    private bool started;
 
     public BoardGameState CurrentState => currentState;
     public int CurrentWaveIndex => currentWaveIndex;
@@ -44,7 +48,6 @@ public class BoardGameController : MonoBehaviour
     {
         backHandler = GetComponentInParent<BackTrackedContentHandler>();
         boardWorldController = GetComponentInChildren<BoardWorldController>(true);
-
         ui = GetComponent<BoardGameUiBinder>();
         progress = GetComponent<BoardGameProgress>();
     }
@@ -63,6 +66,12 @@ public class BoardGameController : MonoBehaviour
         if (waveDirector == null)
             waveDirector = GetComponentInChildren<WaveDirector>(true);
 
+        if (shieldPlacementController == null)
+            shieldPlacementController = GetComponentInChildren<ShieldPlacementController>(true);
+
+        if (chunkManager == null)
+            chunkManager = GetComponentInChildren<ChunkManager>(true);
+
         if (ui == null)
             ui = GetComponent<BoardGameUiBinder>();
 
@@ -72,16 +81,34 @@ public class BoardGameController : MonoBehaviour
         progress?.EnsureLoaded();
     }
 
+    private void OnEnable()
+    {
+        if (!started)
+            return;
+
+        boardWorldController?.SetSimulationActive(IsSimulationActive(currentState));
+
+        if (currentState == BoardGameState.Countdown && countdownCoroutine == null)
+            countdownCoroutine = StartCoroutine(CountdownCoroutine());
+
+        if (currentState == BoardGameState.WaveClear && waveTransitionCoroutine == null)
+            waveTransitionCoroutine = StartCoroutine(WaveClearTransitionCoroutine());
+
+        ui?.ApplyStateVisuals(currentState);
+        ui?.UpdateHud(currentState, currentWaveIndex, currentScore, BestScore);
+    }
+
     private void Start()
     {
+        started = true;
         SetState(BoardGameState.Idle, force: true);
     }
 
     private void OnDisable()
     {
         StopCountdown();
-        if (boardWorldController != null)
-            boardWorldController.SetSimulationActive(false);
+        StopWaveTransition();
+        boardWorldController?.SetSimulationActive(false);
     }
 
     public void InsertCoin()
@@ -106,15 +133,14 @@ public class BoardGameController : MonoBehaviour
             return;
 
         StopCountdown();
+        StopWaveTransition();
         SetState(BoardGameState.GalleryOpen);
     }
 
     public void CloseGallery()
     {
-        if (currentState != BoardGameState.GalleryOpen)
-            return;
-
-        SetState(BoardGameState.Idle);
+        if (currentState == BoardGameState.GalleryOpen)
+            SetState(BoardGameState.Idle);
     }
 
     public void BeginNewRun()
@@ -122,6 +148,7 @@ public class BoardGameController : MonoBehaviour
         progress?.BeginRun();
 
         StopCountdown();
+        StopWaveTransition();
 
         currentWaveIndex = 0;
         currentScore = 0;
@@ -130,6 +157,7 @@ public class BoardGameController : MonoBehaviour
         playerTankController?.ResetForRun();
         shieldPlacementController?.ClearAll();
         waveDirector?.ClearWave();
+        chunkManager?.RebuildForWave(firstWaveIndex);
 
         SetState(BoardGameState.Countdown);
         countdownCoroutine = StartCoroutine(CountdownCoroutine());
@@ -144,16 +172,17 @@ public class BoardGameController : MonoBehaviour
         progress?.UpdateRunResultsIfBetter(currentScore, currentWaveIndex);
 
         SetState(BoardGameState.WaveClear);
+        StopWaveTransition();
+        waveTransitionCoroutine = StartCoroutine(WaveClearTransitionCoroutine());
     }
 
     public void ShowUpgradeChoice()
     {
-        if (currentState != BoardGameState.WaveClear)
-            return;
-
-        SetState(BoardGameState.UpgradeChoice);
+        if (currentState == BoardGameState.WaveClear)
+            SetState(BoardGameState.UpgradeChoice);
     }
 
+    // Legacy/fallback button hook.
     public void ApplyUpgradeAndContinue()
     {
         if (currentState != BoardGameState.WaveClear && currentState != BoardGameState.UpgradeChoice)
@@ -162,9 +191,17 @@ public class BoardGameController : MonoBehaviour
         StartWave(currentWaveIndex + 1);
     }
 
+    public void ApplyRapidFireUpgrade() => ApplyUpgrade(PlayerTankController.UpgradeType.RapidFire);
+    public void ApplyHeavyShellsUpgrade() => ApplyUpgrade(PlayerTankController.UpgradeType.HeavyShells);
+    public void ApplyMobilityUpgrade() => ApplyUpgrade(PlayerTankController.UpgradeType.Mobility);
+
     public void EndRun()
     {
+        if (currentState == BoardGameState.GameOver)
+            return;
+
         StopCountdown();
+        StopWaveTransition();
         progress?.UpdateRunResultsIfBetter(currentScore, currentWaveIndex);
 
         SetState(BoardGameState.GameOver);
@@ -176,10 +213,20 @@ public class BoardGameController : MonoBehaviour
     public void ReturnToIdle()
     {
         StopCountdown();
+        StopWaveTransition();
         SetState(BoardGameState.Idle);
 
         waveDirector?.ClearWave();
         shieldPlacementController?.ClearAll();
+    }
+
+    private void ApplyUpgrade(PlayerTankController.UpgradeType upgrade)
+    {
+        if (currentState != BoardGameState.UpgradeChoice)
+            return;
+
+        playerTankController?.ApplyUpgrade(upgrade);
+        StartWave(currentWaveIndex + 1);
     }
 
     private IEnumerator CountdownCoroutine()
@@ -200,15 +247,27 @@ public class BoardGameController : MonoBehaviour
         StartWave(firstWaveIndex);
     }
 
+    private IEnumerator WaveClearTransitionCoroutine()
+    {
+        yield return new WaitForSeconds(waveClearDuration);
+        waveTransitionCoroutine = null;
+
+        if (currentState == BoardGameState.WaveClear)
+            ShowUpgradeChoice();
+    }
+
     private void StartWave(int waveIndex)
     {
         StopCountdown();
+        StopWaveTransition();
 
         currentWaveIndex = waveIndex;
         Debug.Log($"STARTING WAVE {currentWaveIndex}");
 
+        // Reconfigure the arena before every wave. The player keeps health and upgrades.
+        chunkManager?.RebuildForWave(currentWaveIndex);
+
         SetState(BoardGameState.Playing);
-        playerTankController?.ResetForRun();
         waveDirector?.StartWave(currentWaveIndex);
     }
 
@@ -219,10 +278,7 @@ public class BoardGameController : MonoBehaviour
 
         currentState = newState;
 
-        // Fixed: compute from NEW state, do it once.
-        if (boardWorldController != null)
-            boardWorldController.SetSimulationActive(IsSimulationActive(currentState));
-
+        boardWorldController?.SetSimulationActive(IsSimulationActive(currentState));
         SyncBackHandler();
         ui?.ApplyStateVisuals(currentState);
         ui?.UpdateHud(currentState, currentWaveIndex, currentScore, BestScore);
@@ -230,7 +286,6 @@ public class BoardGameController : MonoBehaviour
 
     private static bool IsSimulationActive(BoardGameState state)
     {
-        // Decide what "sim active" means once, in one place.
         return state == BoardGameState.Playing;
     }
 
@@ -268,5 +323,14 @@ public class BoardGameController : MonoBehaviour
         }
 
         ui?.ClearCountdownText();
+    }
+
+    private void StopWaveTransition()
+    {
+        if (waveTransitionCoroutine == null)
+            return;
+
+        StopCoroutine(waveTransitionCoroutine);
+        waveTransitionCoroutine = null;
     }
 }

@@ -15,6 +15,7 @@ public class EnemyTankController : MonoBehaviour
     [Header("Stats")]
     [SerializeField] private float moveSpeed = 1.35f;
     [SerializeField] private float maxHealth = 2f;
+    [SerializeField] private float bodyRadius = 0.3f;
     [SerializeField] private float contactDamage = 1f;
     [SerializeField] private float contactInterval = 1f;
     [SerializeField] private float fireRange = 4.5f;
@@ -51,13 +52,14 @@ public class EnemyTankController : MonoBehaviour
         worldPosition = startWorldPosition;
 
         currentHealth = maxHealth + Mathf.Floor(waveIndex / 3f);
-        moveSpeed += (waveIndex - 1) * 0.05f;
+        moveSpeed += Mathf.Max(0, waveIndex - 1) * 0.05f;
 
         if (visualRoot == null)
             visualRoot = gameObject;
 
         activeEnemies.Add(this);
         initialized = true;
+        RefreshVisual(Vector2.down);
     }
 
     private void OnDestroy()
@@ -73,7 +75,7 @@ public class EnemyTankController : MonoBehaviour
             Die();
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (!initialized || boardWorldController == null || !boardWorldController.SimulationActive)
             return;
@@ -81,8 +83,9 @@ public class EnemyTankController : MonoBehaviour
         if (PlayerTankController.Instance == null)
             return;
 
-        contactCooldown -= Time.deltaTime;
-        fireCooldown -= Time.deltaTime;
+        float deltaTime = Time.fixedDeltaTime;
+        contactCooldown = Mathf.Max(0f, contactCooldown - deltaTime);
+        fireCooldown = Mathf.Max(0f, fireCooldown - deltaTime);
 
         Vector2 playerWorldPosition = PlayerTankController.Instance.WorldPosition;
         Vector2 toPlayer = playerWorldPosition - worldPosition;
@@ -91,21 +94,16 @@ public class EnemyTankController : MonoBehaviour
 
         if (distanceToPlayer > 0.55f)
         {
-            Vector2 candidate = worldPosition + direction * moveSpeed * Time.deltaTime;
-
-            if (shieldPlacementController == null || !shieldPlacementController.IsPointBlockedForEnemy(candidate))
-                worldPosition = candidate;
+            TryAdvance(direction, deltaTime);
         }
         else if (contactCooldown <= 0f)
         {
-            Debug.Log($"Enemy contact hit player. Enemy world pos: {worldPosition}");
             PlayerTankController.Instance.TakeDamage(contactDamage);
             contactCooldown = contactInterval;
         }
 
         if (projectilePrefab != null && distanceToPlayer <= fireRange && fireCooldown <= 0f)
         {
-            Debug.Log($"Enemy firing at distance {distanceToPlayer}");
             fireCooldown = 1f / Mathf.Max(0.01f, shotsPerSecond);
 
             ProjectileController projectile = enemyProjectilesRoot != null
@@ -125,6 +123,41 @@ public class EnemyTankController : MonoBehaviour
         RefreshVisual(direction);
     }
 
+    private void TryAdvance(Vector2 direction, float deltaTime)
+    {
+        float step = moveSpeed * deltaTime;
+        Vector2 forwardCandidate = worldPosition + direction * step;
+
+        if (CanOccupy(forwardCandidate))
+        {
+            worldPosition = forwardCandidate;
+            return;
+        }
+
+        // Simple deterministic wall avoidance: try both tangents and take the first free route.
+        Vector2 tangentLeft = new(-direction.y, direction.x);
+        Vector2 tangentRight = -tangentLeft;
+
+        Vector2 leftCandidate = worldPosition + tangentLeft * step;
+        if (CanOccupy(leftCandidate))
+        {
+            worldPosition = leftCandidate;
+            return;
+        }
+
+        Vector2 rightCandidate = worldPosition + tangentRight * step;
+        if (CanOccupy(rightCandidate))
+            worldPosition = rightCandidate;
+    }
+
+    private bool CanOccupy(Vector2 candidate)
+    {
+        if (shieldPlacementController != null && shieldPlacementController.IsPointBlockedForEnemy(candidate))
+            return false;
+
+        return !boardWorldController.IsObstacleBlocked(candidate, bodyRadius);
+    }
+
     private void RefreshVisual(Vector2 facingDirection)
     {
         bool visible = boardWorldController.IsWorldPositionVisible(worldPosition, visibilityPadding);
@@ -135,17 +168,16 @@ public class EnemyTankController : MonoBehaviour
 
         transform.localPosition = boardWorldController.WorldToBoardLocal(worldPosition, 0f);
 
-        if (visualRoot != null && facingDirection.sqrMagnitude > 0.0001f)
-        {
-            float yaw = Mathf.Atan2(facingDirection.x, facingDirection.y) * Mathf.Rad2Deg;
-            visualRoot.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
-        }
+        if (facingDirection.sqrMagnitude <= 0.0001f)
+            return;
 
-        if (turretRoot != null && facingDirection.sqrMagnitude > 0.0001f)
-        {
-            float yaw = Mathf.Atan2(facingDirection.x, facingDirection.y) * Mathf.Rad2Deg;
+        float yaw = Mathf.Atan2(facingDirection.x, facingDirection.y) * Mathf.Rad2Deg;
+
+        if (visualRoot != null)
+            visualRoot.transform.localRotation = Quaternion.Euler(0f, yaw, 0f);
+
+        if (turretRoot != null)
             turretRoot.localRotation = Quaternion.Euler(0f, yaw, 0f);
-        }
     }
 
     private void Die()

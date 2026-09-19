@@ -13,6 +13,9 @@ public class TankController : MonoBehaviour
     [SerializeField] private WeaponBase[] weapons;
     [SerializeField] private NavMeshAgent agent;
 
+    [SerializeField] private WeaponBase primaryWeapon;
+    [SerializeField] private GameObject player;    
+
     private void OnEnable()
     {
         motor = GetComponent<TankMotor>();
@@ -25,7 +28,9 @@ public class TankController : MonoBehaviour
     // Start is called once before the first execution of Update after the MonoBehaviour is created
     void Start()
     {
-
+        player = GameObject.FindGameObjectWithTag("Player");
+        player.GetComponent<TankController>().faction = Faction.Player;
+        primaryWeapon = weapons[0];
     }
 
     // Update is called once per frame
@@ -37,58 +42,44 @@ public class TankController : MonoBehaviour
         }
         else
         {
-            AIBehaviour();
+            EnemyBehaviour();
         }
 
     }
 
     private void HandlePlayerInput()
     {
+        // Switch weapons (once per key press)
+        if (Keyboard.current.digit1Key.wasPressedThisFrame)
+            primaryWeapon = weapons[0];
+        else if (Keyboard.current.digit2Key.wasPressedThisFrame)
+            primaryWeapon = weapons[1];
+        else if (Keyboard.current.digit3Key.wasPressedThisFrame)
+            primaryWeapon = weapons[2];
+
         if (Keyboard.current.wKey.isPressed)
-        {
             motor.Thrust(motorSpeed);
-        }
         else if (Keyboard.current.sKey.isPressed)
-        {
             motor.Thrust(-motorSpeed);
-        }
         else if (Keyboard.current.aKey.isPressed)
-        {
             motor.Rotate(-motorTorque);
-        }
         else if (Keyboard.current.dKey.isPressed)
-        {
             motor.Rotate(motorTorque);
-        }
 
         if (Mouse.current.leftButton.isPressed)
-        {
-            weapons[0].TryStartFire();
-        }
+            primaryWeapon.TryStartFire();
         else if (Mouse.current.leftButton.wasReleasedThisFrame)
-        {
-            weapons[0].StopFire();
-        }
-        else if (Mouse.current.rightButton.wasPressedThisFrame)
-        {
-            if (weapons.Length > 1)
-                weapons[1].TryStartFire();
-        }
-        else if (Mouse.current.rightButton.wasReleasedThisFrame)
-        {
-            if (weapons.Length > 1)
-                weapons[1].StopFire();
-        }
+            primaryWeapon.StopFire();
     }
 
-    private void AIBehaviour()
+    private void EnemyBehaviour()
     {
         if (agent == null) agent = GetComponent<NavMeshAgent>();
 
-        if (agent.destination == null)
+        if (agent.destination != player.transform.position)
         {
-            agent.SetDestination(GameObject.FindGameObjectWithTag("Player").transform.position);
-            Debug.Log($"AI Tank setting destination to player position: {agent.destination}");
+            agent.SetDestination(player.transform.position);
+            Debug.Log($"Enemy tank destination: {agent.destination}");
         }
 
         Ray ray = new Ray(transform.position, transform.forward);

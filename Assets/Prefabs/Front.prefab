@@ -188,6 +188,7 @@ GameObject:
   - component: {fileID: 5082964633653223879}
   - component: {fileID: -2850654109703696880}
   - component: {fileID: 6241011960394380350}
+  - component: {fileID: 7359012846102483712}
   m_Layer: 0
   m_Name: Front
   m_TagString: Untagged
@@ -246,3 +247,27 @@ MonoBehaviour:
   worldCanvas: {fileID: 4626579547717717706}
   fillImage: {fileID: 4204573192212875802}
   facingRoot: {fileID: 5082964633653223879}
+
+--- !u!114 &7359012846102483712
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 5826411576938023631}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 5eefcfc17216411ca74bca3c205dff43, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::FrontExperienceController
+  worldCanvas: {fileID: 4626579547717717706}
+  githubUrl: https://github.com/J4ck4b14
+  linkedInUrl: https://www.linkedin.com/in/juan-abia-merino
+  artStationUrl: https://juanabiamerino.artstation.com
+  cvUrl: 
+  emailAddress: juan.abia.merino@gmail.com
+  phoneNumber: 
+  profileVideo: {fileID: 0}
+  profileAudio: {fileID: 0}
+  buildFallbackInterface: 1
+  profileFlipDuration: 0.22

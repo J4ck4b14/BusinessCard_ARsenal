@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
-using UnityEditor.PackageManager;
 using UnityEngine;
 
 public static class ArsenalSaveSystem
@@ -43,7 +42,7 @@ public static class ArsenalSaveSystem
             return;
 
         string json = JsonUtility.ToJson(data, prettyPrint: true);
-        File.WriteAllText(SaveFilePath, json);
+        File.WriteAllText(CurrentSaveFilePath, json);
     }
 
     public static void DeleteSave()
@@ -86,7 +85,7 @@ public static class ArsenalSaveSystem
         Directory.CreateDirectory(SaveDirectory);
 
         string json = JsonUtility.ToJson(data, prettyPrint: true);
-        File.WriteAllText(SaveFilePath, json);
+        File.WriteAllText(CurrentSaveFilePath, json);
     }
 
     public static ArsenalSaveData LoadCurrent()

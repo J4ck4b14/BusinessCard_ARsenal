@@ -4,242 +4,213 @@ using UnityEngine;
 using UnityEngine.Animations;
 using UnityEngine.UI;
 
-/// <summary>
-/// Front-side tracked content behaviour.
-/// 
-/// Behaviour summary:
-/// - When tracking is found: attach to the tracked image and animate a UI `Image.fillAmount` from 0 ? 1.
-/// - When tracking is lost: detach (keep world pose) and animate fill from 1 ? 0, then disable.
-/// - When trackable is removed: if currently visible, play the hide animation and destroy afterwards.
-/// 
-/// The actual spawning and lifecycle calls are managed by `ImageTrackingAssigner`.
-/// </summary>
 public sealed class FrontTrackedContentHandler : TrackedContentHandlerBase
 {
-    [Header("Optional references")]
+    [Header("References")]
     [SerializeField] private Canvas worldCanvas;
     [SerializeField] private Image fillImage;
-
-    // Root transform that should face the AR camera (e.g., a billboard pivot).
     [SerializeField] private Transform facingRoot;
 
     private RotationConstraint rotationConstraint;
+    private CanvasGroup canvasGroup;
     private Coroutine animationRoutine;
 
-    /// <summary>
-    /// Minimal state machine preventing overlapping coroutines and supporting re-entrant events
-    /// (tracking toggling quickly).
-    /// </summary>
     private enum FrontState
     {
-   Hidden,
+        Hidden,
         Showing,
-  Visible,
-    Hiding
+        Visible,
+        Hiding
     }
 
     private FrontState state = FrontState.Hidden;
 
-    /// <summary>
-    /// One-time component discovery and setup.
-    /// </summary>
     protected override void OnInitialized(TrackedContentContext context)
     {
-   // Resolve optional references for prefab variants.
-   if (worldCanvas == null)
-  worldCanvas = GetComponentInChildren<Canvas>(true);
+        if (worldCanvas == null)
+            worldCanvas = GetComponentInChildren<Canvas>(true);
 
-    if (fillImage == null)
-       fillImage = GetComponentInChildren<Image>(true);
+        if (fillImage == null)
+            fillImage = GetComponentInChildren<Image>(true);
 
-        // If no explicit facing root is provided, face the camera with the whole object.
-  if (facingRoot == null)
-        facingRoot = transform;
+        if (facingRoot == null)
+            facingRoot = transform;
 
-   SetupCanvasAndConstraint(context);
+        if (worldCanvas != null)
+        {
+            canvasGroup = worldCanvas.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+                canvasGroup = worldCanvas.gameObject.AddComponent<CanvasGroup>();
 
-        // Ensure we start hidden for fill-based variants.
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
         if (fillImage != null)
-  fillImage.fillAmount = 0f;
+            fillImage.fillAmount = 0f;
+
+        SetupCanvasAndConstraint(context);
     }
 
-    /// <summary>
-/// Refresh camera references / constraints if the context changes.
-    /// </summary>
     protected override void OnContextRefreshed(TrackedContentContext context)
     {
-    SetupCanvasAndConstraint(context);
+        SetupCanvasAndConstraint(context);
     }
 
-    /// <inheritdoc/>
-public override void OnTrackingFound(TrackedContentContext context)
+    public override void OnTrackingFound(TrackedContentContext context)
     {
-        // Update ActiveContext, then attach under the tracked image transform.
-    SetContext(context);
-    AttachToTrackedImage(context);
-
-  // Ensure visible while tracking.
+        SetContext(context);
+        AttachToTrackedImage(context);
         gameObject.SetActive(true);
 
-    // If no fill image exists we treat this handler as an instant show/hide.
-  if (fillImage == null)
-        {
-      state = FrontState.Visible;
-       return;
-  }
+        if (state == FrontState.Visible || state == FrontState.Showing)
+            return;
 
-        // Ignore duplicate "tracking found" events during show/visible.
-  if (state == FrontState.Visible || state == FrontState.Showing)
-      return;
-
-    StopAnimation();
-  state = FrontState.Showing;
-   animationRoutine = StartCoroutine(ShowRoutine());
-}
-
-    /// <inheritdoc/>
-    public override void OnTrackingLost()
-{
-  // No fill image => just disable.
-        if (fillImage == null)
-  {
- gameObject.SetActive(false);
-   state = FrontState.Hidden;
-        return;
-   }
-
-    // Ignore duplicate "tracking lost" events during hide/hidden.
-    if (state == FrontState.Hidden || state == FrontState.Hiding)
-  return;
-
-   StopAnimation();
-
-    // Detach so the hide animation keeps the world-space pose even while the tracked image moves/disappears.
-        DetachKeepWorldPose();
-
-    // Keep it active while animating the fill down.
-    gameObject.SetActive(true);
-
-        state = FrontState.Hiding;
-    animationRoutine = StartCoroutine(HideRoutine(destroyWhenDone: false, destroySelf: null));
+        StopAnimation();
+        state = FrontState.Showing;
+        animationRoutine = StartCoroutine(ShowRoutine());
     }
 
-    /// <inheritdoc/>
+    public override void OnTrackingLost()
+    {
+        if (state == FrontState.Hidden || state == FrontState.Hiding)
+            return;
+
+        StopAnimation();
+
+        // Keep the last pose while the interface closes. It feels much less jumpy than
+        // following a marker whose pose is already becoming unreliable.
+        DetachKeepWorldPose();
+        gameObject.SetActive(true);
+
+        state = FrontState.Hiding;
+        animationRoutine = StartCoroutine(HideRoutine(false, null));
+    }
+
     public override void OnTrackableRemoved(Action destroySelf)
     {
-        // If we are already hidden (or have nothing to animate), destroy immediately.
-   if (fillImage == null || state == FrontState.Hidden || fillImage.fillAmount <= 0f)
+        if (state == FrontState.Hidden || GetVisibleAmount() <= 0f)
         {
-       destroySelf?.Invoke();
-  return;
-    }
+            destroySelf?.Invoke();
+            return;
+        }
 
-    StopAnimation();
-
-        // Same approach as tracking lost: freeze pose and hide, but destroy at the end.
+        StopAnimation();
         DetachKeepWorldPose();
-    gameObject.SetActive(true);
+        gameObject.SetActive(true);
 
         state = FrontState.Hiding;
-    animationRoutine = StartCoroutine(HideRoutine(destroyWhenDone: true, destroySelf: destroySelf));
+        animationRoutine = StartCoroutine(HideRoutine(true, destroySelf));
     }
 
-    /// <summary>
-    /// Configures:
-    /// - world-space canvas camera (`Canvas.worldCamera`)
-    /// - a `RotationConstraint` on <see cref="facingRoot"/> so it faces the AR camera around Y.
-    /// </summary>
     private void SetupCanvasAndConstraint(TrackedContentContext context)
     {
-  if (context == null)
-  return;
+        if (context == null)
+            return;
 
-   if (worldCanvas != null)
+        if (worldCanvas != null)
         {
-       worldCanvas.renderMode = RenderMode.WorldSpace;
-       worldCanvas.worldCamera = context.ArCamera;
-    }
+            worldCanvas.renderMode = RenderMode.WorldSpace;
+            worldCanvas.worldCamera = context.ArCamera;
+        }
 
-    if (facingRoot == null || context.ArCamera == null)
-   return;
+        if (facingRoot == null || context.ArCamera == null)
+            return;
 
-        // Ensure we have a constraint component.
-    rotationConstraint = facingRoot.GetComponent<RotationConstraint>();
-    if (rotationConstraint == null)
-        rotationConstraint = facingRoot.gameObject.AddComponent<RotationConstraint>();
+        rotationConstraint = facingRoot.GetComponent<RotationConstraint>();
+        if (rotationConstraint == null)
+            rotationConstraint = facingRoot.gameObject.AddComponent<RotationConstraint>();
 
-    // Only rotate around Y to keep the content upright.
-   rotationConstraint.rotationAxis = Axis.Y;
+        rotationConstraint.rotationAxis = Axis.Y;
 
-  // Keep exactly one source: the AR camera.
-   for (int i = rotationConstraint.sourceCount - 1; i >= 0; i--)
-   rotationConstraint.RemoveSource(i);
+        for (int i = rotationConstraint.sourceCount - 1; i >= 0; i--)
+            rotationConstraint.RemoveSource(i);
 
-   ConstraintSource source = new ConstraintSource
-    {
-        sourceTransform = context.ArCamera.transform,
-  weight = 1f
-   };
+        rotationConstraint.AddSource(new ConstraintSource
+        {
+            sourceTransform = context.ArCamera.transform,
+            weight = 1f
+        });
 
-   rotationConstraint.AddSource(source);
         rotationConstraint.constraintActive = true;
     }
 
-    /// <summary>
-    /// Fills the UI image until fully visible.
-/// Speed is derived from `ImageTrackingAssigner.fillSpeed` via `TrackedContentContext.FillUnitsPerSecond`.
-    /// </summary>
     private IEnumerator ShowRoutine()
     {
-    while (fillImage != null && fillImage.fillAmount < 1f)
-   {
-   fillImage.fillAmount = Mathf.Min(
-     1f,
-      fillImage.fillAmount + ActiveContext.FillUnitsPerSecond * Time.deltaTime);
+        float amount = GetVisibleAmount();
+        float speed = ActiveContext != null ? ActiveContext.FillUnitsPerSecond : 4f;
 
-        yield return null;
-    }
-
-    animationRoutine = null;
-    state = FrontState.Visible;
-    }
-
-    /// <summary>
-    /// Un-fills the UI image until hidden, then disables or destroys.
-    /// </summary>
-    private IEnumerator HideRoutine(bool destroyWhenDone, Action destroySelf)
-    {
-   while (fillImage != null && fillImage.fillAmount > 0f)
-  {
- fillImage.fillAmount = Mathf.Max(
-      0f,
-       fillImage.fillAmount - ActiveContext.HideFillUnitsPerSecond * Time.deltaTime);
-
- yield return null;
+        while (amount < 1f)
+        {
+            amount = Mathf.Min(1f, amount + speed * Time.deltaTime);
+            ApplyVisibleAmount(amount);
+            yield return null;
         }
 
-   animationRoutine = null;
+        SetInteractionEnabled(true);
+        animationRoutine = null;
+        state = FrontState.Visible;
+    }
+
+    private IEnumerator HideRoutine(bool destroyWhenDone, Action destroySelf)
+    {
+        SetInteractionEnabled(false);
+
+        float amount = GetVisibleAmount();
+        float speed = ActiveContext != null ? ActiveContext.HideFillUnitsPerSecond : 6f;
+
+        while (amount > 0f)
+        {
+            amount = Mathf.Max(0f, amount - speed * Time.deltaTime);
+            ApplyVisibleAmount(amount);
+            yield return null;
+        }
+
+        animationRoutine = null;
+        state = FrontState.Hidden;
 
         if (destroyWhenDone)
         {
-      // `ImageTrackingAssigner` expects this callback to be invoked to finalize removal.
-   destroySelf?.Invoke();
- yield break;
+            destroySelf?.Invoke();
+            yield break;
+        }
+
+        gameObject.SetActive(false);
     }
 
-    gameObject.SetActive(false);
-        state = FrontState.Hidden;
+    private float GetVisibleAmount()
+    {
+        if (canvasGroup != null)
+            return canvasGroup.alpha;
+
+        return fillImage != null ? fillImage.fillAmount : 0f;
     }
 
-    /// <summary>
-    /// Stops the currently running show/hide coroutine (if any).
-    /// </summary>
+    private void ApplyVisibleAmount(float amount)
+    {
+        if (fillImage != null)
+            fillImage.fillAmount = amount;
+
+        if (canvasGroup != null)
+            canvasGroup.alpha = amount;
+    }
+
+    private void SetInteractionEnabled(bool enabled)
+    {
+        if (canvasGroup == null)
+            return;
+
+        canvasGroup.interactable = enabled;
+        canvasGroup.blocksRaycasts = enabled;
+    }
+
     private void StopAnimation()
     {
-   if (animationRoutine != null)
-    {
-  StopCoroutine(animationRoutine);
-  animationRoutine = null;
-   }
+        if (animationRoutine == null)
+            return;
+
+        StopCoroutine(animationRoutine);
+        animationRoutine = null;
     }
 }

@@ -1,7 +1,7 @@
 using UnityEngine;
 using UnityEngine.EventSystems;
 
-public class HoldCommandButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
+public sealed class HoldCommandButton : MonoBehaviour, IPointerDownHandler, IPointerUpHandler, IPointerExitHandler
 {
     public enum ButtonMode
     {
@@ -15,23 +15,36 @@ public class HoldCommandButton : MonoBehaviour, IPointerDownHandler, IPointerUpH
     [SerializeField] private PlayerCommandInput commandInput;
     [SerializeField] private ButtonMode mode;
 
-    public void OnPointerDown(PointerEventData eventData)
+    private void Awake()
     {
-        SetPressed(true);
+        ResolveCommandInput();
     }
 
-    public void OnPointerUp(PointerEventData eventData)
+    private void OnDisable()
     {
+        // Never leave a command latched if the UI disappears while a finger is down.
         SetPressed(false);
     }
 
-    public void OnPointerExit(PointerEventData eventData)
+    public void OnPointerDown(PointerEventData eventData) => SetPressed(true);
+    public void OnPointerUp(PointerEventData eventData) => SetPressed(false);
+    public void OnPointerExit(PointerEventData eventData) => SetPressed(false);
+
+    private void ResolveCommandInput()
     {
-        SetPressed(false);
+        if (commandInput != null)
+            return;
+
+        BackTrackedContentHandler backRoot = GetComponentInParent<BackTrackedContentHandler>(true);
+        if (backRoot != null)
+            commandInput = backRoot.GetComponentInChildren<PlayerCommandInput>(true);
     }
 
     private void SetPressed(bool pressed)
     {
+        if (commandInput == null)
+            ResolveCommandInput();
+
         if (commandInput == null)
             return;
 

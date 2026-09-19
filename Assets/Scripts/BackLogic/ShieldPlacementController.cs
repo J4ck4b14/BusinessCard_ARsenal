@@ -40,6 +40,11 @@ public class ShieldPlacementController : MonoBehaviour
             Snap(boardLocalPoint.z));
 
         Vector2 worldPosition = boardWorldController.BoardLocalToWorld(snappedLocal);
+
+        // A shield cannot be spawned inside procedural cover.
+        if (boardWorldController.IsObstacleBlocked(worldPosition, snapSize * 0.35f))
+            return;
+
         float yaw = playerTankController != null ? playerTankController.HullYawDegrees : 0f;
 
         ShieldWallController shield = shieldsRoot != null

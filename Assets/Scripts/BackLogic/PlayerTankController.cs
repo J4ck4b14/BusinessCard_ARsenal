@@ -3,6 +3,13 @@ using UnityEngine;
 
 public class PlayerTankController : MonoBehaviour
 {
+    public enum UpgradeType
+    {
+        RapidFire,
+        HeavyShells,
+        Mobility
+    }
+
     [Serializable]
     public sealed class WeaponConfig
     {
@@ -20,7 +27,6 @@ public class PlayerTankController : MonoBehaviour
     [SerializeField] private BoardWorldController boardWorldController;
     [SerializeField] private BoardGameController boardGameController;
     [SerializeField] private PlayerCommandInput commandInput;
-    [SerializeField] private Camera arCamera;
     [SerializeField] private Transform boardSpaceRoot;
     [SerializeField] private Transform hullRoot;
     [SerializeField] private Transform turretRoot;
@@ -31,22 +37,46 @@ public class PlayerTankController : MonoBehaviour
     [SerializeField] private float turnDegreesPerSecond = 70f;
     [SerializeField] private float maxHealth = 5f;
 
+    [Header("Targeting")]
+    [SerializeField] private float targetRange = 10f;
+
     [Header("Weapon")]
     [SerializeField] private WeaponConfig primaryWeapon = new();
+
+    private float baseMoveSpeed;
+    private float baseMaxHealth;
+    private float baseShotsPerSecond;
+    private float baseProjectileSpeed;
+    private float baseDamage;
 
     private float hullYawDegrees;
     private float currentHealth;
     private float fireCooldown;
+    private Vector2 currentAimDirection = Vector2.up;
+    private bool hasTarget;
 
     public Vector2 WorldPosition => boardWorldController != null ? boardWorldController.PlayerWorldPosition : Vector2.zero;
     public float HullYawDegrees => hullYawDegrees;
+    public float CurrentHealth => currentHealth;
+    public float MaxHealth => maxHealth;
+    public bool HasTarget => hasTarget;
 
     private void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Debug.LogError("More than one PlayerTankController is active. Disabling duplicate.", this);
+            enabled = false;
+            return;
+        }
+
         Instance = this;
 
-        if (arCamera == null)
-            arCamera = Camera.main;
+        baseMoveSpeed = moveSpeed;
+        baseMaxHealth = maxHealth;
+        baseShotsPerSecond = primaryWeapon.shotsPerSecond;
+        baseProjectileSpeed = primaryWeapon.projectileSpeed;
+        baseDamage = primaryWeapon.damage;
 
         currentHealth = maxHealth;
     }
@@ -59,9 +89,19 @@ public class PlayerTankController : MonoBehaviour
 
     public void ResetForRun()
     {
+        moveSpeed = baseMoveSpeed;
+        maxHealth = baseMaxHealth;
+        primaryWeapon.shotsPerSecond = baseShotsPerSecond;
+        primaryWeapon.projectileSpeed = baseProjectileSpeed;
+        primaryWeapon.damage = baseDamage;
+
         currentHealth = maxHealth;
         hullYawDegrees = 0f;
         fireCooldown = 0f;
+        currentAimDirection = Vector2.up;
+        hasTarget = false;
+
+        DestroyChildren(projectilesRoot);
 
         if (hullRoot != null)
             hullRoot.localRotation = Quaternion.identity;
@@ -70,82 +110,114 @@ public class PlayerTankController : MonoBehaviour
             turretRoot.localRotation = Quaternion.identity;
     }
 
+    public void ApplyUpgrade(UpgradeType upgrade)
+    {
+        switch (upgrade)
+        {
+            case UpgradeType.RapidFire:
+                primaryWeapon.shotsPerSecond *= 1.25f;
+                break;
+
+            case UpgradeType.HeavyShells:
+                primaryWeapon.damage *= 1.35f;
+                primaryWeapon.projectileSpeed *= 1.08f;
+                break;
+
+            case UpgradeType.Mobility:
+                moveSpeed *= 1.15f;
+                currentHealth = Mathf.Min(maxHealth, currentHealth + 1f);
+                break;
+        }
+    }
+
     public void TakeDamage(float amount)
     {
         if (boardGameController == null || boardGameController.CurrentState != BoardGameController.BoardGameState.Playing)
             return;
 
-        currentHealth -= amount;
+        currentHealth = Mathf.Max(0f, currentHealth - amount);
         Debug.Log($"PLAYER HIT for {amount}. Health now: {currentHealth}");
 
         if (currentHealth <= 0f)
         {
             Debug.Log("PLAYER DEAD -> EndRun()");
-            if (boardGameController != null)
-                boardGameController.EndRun();
+            boardGameController.EndRun();
         }
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (boardWorldController == null || commandInput == null || !boardWorldController.SimulationActive)
             return;
 
-        fireCooldown -= Time.deltaTime;
+        float deltaTime = Time.fixedDeltaTime;
+        fireCooldown = Mathf.Max(0f, fireCooldown - deltaTime);
 
-        HandleMovement();
-        HandleTurretFollow();
+        HandleMovement(deltaTime);
+        HandleTargeting();
         HandleFire();
     }
 
-    private void HandleMovement()
+    private void HandleMovement(float deltaTime)
     {
-        // Tank-style: allow forward/back and turning at the same time.
-        float throttle = commandInput.Throttle; // -1..1
-        float steer = commandInput.Steer;       // -1..1
+        float throttle = commandInput.Throttle;
+        float steer = commandInput.Steer;
 
         if (Mathf.Abs(steer) > 0.0001f)
-            hullYawDegrees += steer * turnDegreesPerSecond * Time.deltaTime;
+            hullYawDegrees += steer * turnDegreesPerSecond * deltaTime;
 
         if (Mathf.Abs(throttle) > 0.0001f)
-            boardWorldController.MovePlayerWorld(GetHullForward() * (throttle * moveSpeed * Time.deltaTime));
+        {
+            Vector2 delta = GetHullForward() * (throttle * moveSpeed * deltaTime);
+            boardWorldController.TryMovePlayerWorld(delta);
+        }
 
         if (hullRoot != null)
             hullRoot.localRotation = Quaternion.Euler(0f, hullYawDegrees, 0f);
     }
 
-    private void HandleTurretFollow()
+    private void HandleTargeting()
     {
-        if (turretRoot == null || arCamera == null)
-            return;
+        Vector2 playerPosition = WorldPosition;
+        float bestDistanceSq = targetRange * targetRange;
+        EnemyTankController bestEnemy = null;
 
-        Transform root = boardSpaceRoot != null ? boardSpaceRoot : turretRoot.parent;
-        Vector3 localForward = root != null
-            ? root.InverseTransformDirection(arCamera.transform.forward)
-            : arCamera.transform.forward;
+        foreach (EnemyTankController enemy in EnemyTankController.ActiveEnemies)
+        {
+            if (enemy == null)
+                continue;
 
-        localForward.y = 0f;
+            float distanceSq = (enemy.WorldPosition - playerPosition).sqrMagnitude;
+            if (distanceSq >= bestDistanceSq)
+                continue;
 
-        if (localForward.sqrMagnitude < 0.0001f)
-            return;
+            bestDistanceSq = distanceSq;
+            bestEnemy = enemy;
+        }
 
-        turretRoot.localRotation = Quaternion.LookRotation(localForward.normalized, Vector3.up);
+        hasTarget = bestEnemy != null;
+        currentAimDirection = hasTarget
+            ? (bestEnemy.WorldPosition - playerPosition).normalized
+            : GetHullForward();
+
+        if (turretRoot != null && currentAimDirection.sqrMagnitude > 0.0001f)
+        {
+            float yaw = Mathf.Atan2(currentAimDirection.x, currentAimDirection.y) * Mathf.Rad2Deg;
+            turretRoot.localRotation = Quaternion.Euler(0f, yaw, 0f);
+        }
     }
 
     private void HandleFire()
     {
-        if (!commandInput.IsFireHeld)
-            return;
-
-        if (primaryWeapon.projectilePrefab == null)
-            return;
-
-        if (fireCooldown > 0f)
+        if (!commandInput.IsFireHeld || primaryWeapon.projectilePrefab == null || fireCooldown > 0f)
             return;
 
         fireCooldown = 1f / Mathf.Max(0.01f, primaryWeapon.shotsPerSecond);
 
-        Vector2 aimDirection = GetAimDirection();
+        Vector2 aimDirection = currentAimDirection.sqrMagnitude > 0.0001f
+            ? currentAimDirection.normalized
+            : GetHullForward();
+
         Vector2 spawnWorldPosition = WorldPosition + aimDirection * primaryWeapon.spawnDistance;
 
         ProjectileController projectile = projectilesRoot != null
@@ -168,21 +240,12 @@ public class PlayerTankController : MonoBehaviour
         return new Vector2(Mathf.Sin(radians), Mathf.Cos(radians)).normalized;
     }
 
-    private Vector2 GetAimDirection()
+    private static void DestroyChildren(Transform root)
     {
-        if (turretRoot == null)
-            return GetHullForward();
+        if (root == null)
+            return;
 
-        Transform root = boardSpaceRoot != null ? boardSpaceRoot : turretRoot.parent;
-        Vector3 localForward = root != null
-            ? root.InverseTransformDirection(turretRoot.forward)
-            : turretRoot.forward;
-
-        localForward.y = 0f;
-
-        if (localForward.sqrMagnitude < 0.0001f)
-            return GetHullForward();
-
-        return new Vector2(localForward.x, localForward.z).normalized;
+        for (int i = root.childCount - 1; i >= 0; i--)
+            Destroy(root.GetChild(i).gameObject);
     }
 }

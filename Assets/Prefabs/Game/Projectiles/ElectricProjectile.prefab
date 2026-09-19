@@ -33,9 +33,9 @@ Transform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 9024045256645160786}
   serializedVersion: 2
-  m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 0}
-  m_LocalScale: {x: 1, y: 1, z: 1}
+  m_LocalRotation: {x: -0, y: 0.67443526, z: -0, w: 0.738334}
+  m_LocalPosition: {x: 0.9959216, y: 1.1945, z: -9.347367}
+  m_LocalScale: {x: 2.5, y: 2.5, z: 2.5}
   m_ConstrainProportionsScale: 0
   m_Children: []
   m_Father: {fileID: 0}
@@ -5635,6 +5635,7 @@ MonoBehaviour:
   destroyOnImpact: 0
   faction: 0
   maxScaleMult: 2.5
+  isCharging: 0
 --- !u!96 &4246741229341502824
 TrailRenderer:
   serializedVersion: 4

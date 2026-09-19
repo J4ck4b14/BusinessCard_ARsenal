@@ -2,74 +2,73 @@ using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.InputSystem;
 
-public class ARWorldTouchInput : MonoBehaviour
+// One pointer path for mouse and touch. UI gets first refusal, then we raycast the AR world.
+public sealed class ARWorldTouchInput : MonoBehaviour
 {
     [SerializeField] private Camera arCamera;
     [SerializeField] private LayerMask interactableMask = ~0;
+
+    private InputAction pressAction;
 
     private void Awake()
     {
         if (arCamera == null)
             arCamera = Camera.main;
+
+        pressAction = new InputAction(
+            name: "WorldPress",
+            type: InputActionType.Button,
+            binding: "<Pointer>/press");
+
+        pressAction.started += OnPressStarted;
     }
 
-    private void Update()
+    private void OnEnable()
     {
-        HandleTouch();
-        HandleMouse();
+        pressAction?.Enable();
     }
 
-    private void HandleTouch()
+    private void OnDisable()
     {
-        if (Touchscreen.current == null)
+        pressAction?.Disable();
+    }
+
+    private void OnDestroy()
+    {
+        if (pressAction == null)
             return;
 
-        var touch = Touchscreen.current.primaryTouch;
+        pressAction.started -= OnPressStarted;
+        pressAction.Dispose();
+    }
 
-        if (!touch.press.wasPressedThisFrame)
+    private void OnPressStarted(InputAction.CallbackContext context)
+    {
+        if (arCamera == null || Pointer.current == null)
             return;
 
-        Vector2 screenPos = touch.position.ReadValue();
-
+        // World presses should never leak through a UI button.
         if (EventSystem.current != null && EventSystem.current.IsPointerOverGameObject())
             return;
 
-        TryPressAt(screenPos);
+        TryPressAt(Pointer.current.position.ReadValue());
     }
 
-    private void HandleMouse()
+    private void TryPressAt(Vector2 screenPosition)
     {
-#if UNITY_EDITOR || UNITY_STANDALONE
-        if (Mouse.current == null)
+        Ray ray = arCamera.ScreenPointToRay(screenPosition);
+        if (!Physics.Raycast(ray, out RaycastHit hit, 100f, interactableMask))
             return;
 
-        if (!Mouse.current.leftButton.wasPressedThisFrame)
-            return;
-
-        Vector2 screenPos = Mouse.current.position.ReadValue();
-        TryPressAt(screenPos);
-#endif
-    }
-
-    private void TryPressAt(Vector2 screenPos)
-    {
-        Ray ray = arCamera.ScreenPointToRay(screenPos);
-
-        if (Physics.Raycast(ray, out RaycastHit hit, 100f, interactableMask))
+        ArsenalInteractable interactable = hit.collider.GetComponentInParent<ArsenalInteractable>();
+        if (interactable != null)
         {
-            ArsenalInteractable interactable = hit.collider.GetComponentInParent<ArsenalInteractable>();
-            if (interactable != null)
-            {
-                interactable.Press();
-                return;
-            }
-
-            BoardSurfaceClickReceiver boardSurface = hit.collider.GetComponentInParent<BoardSurfaceClickReceiver>();
-            if (boardSurface != null)
-            {
-                boardSurface.ReceiveBoardHit(hit.point);
-                return;
-            }
+            interactable.Press();
+            return;
         }
+
+        BoardSurfaceClickReceiver boardSurface = hit.collider.GetComponentInParent<BoardSurfaceClickReceiver>();
+        if (boardSurface != null)
+            boardSurface.ReceiveBoardHit(hit.point);
     }
 }

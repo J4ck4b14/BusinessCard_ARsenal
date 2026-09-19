@@ -41,9 +41,11 @@ public class ProjectileController : MonoBehaviour
 
         if (visualRoot == null)
             visualRoot = gameObject;
+
+        RefreshVisual();
     }
 
-    private void Update()
+    private void FixedUpdate()
     {
         if (boardWorldController == null)
         {
@@ -54,14 +56,27 @@ public class ProjectileController : MonoBehaviour
         if (!boardWorldController.SimulationActive)
             return;
 
-        age += Time.deltaTime;
+        float deltaTime = Time.fixedDeltaTime;
+        age += deltaTime;
+
         if (age >= lifetime)
         {
             Destroy(gameObject);
             return;
         }
 
-        worldPosition += direction * speed * Time.deltaTime;
+        Vector2 previous = worldPosition;
+        Vector2 next = worldPosition + direction * speed * deltaTime;
+
+        // Sample the middle as well so fast projectiles do not tunnel through a thin obstacle cell.
+        Vector2 middle = Vector2.Lerp(previous, next, 0.5f);
+        if (boardWorldController.IsObstacleBlocked(middle) || boardWorldController.IsObstacleBlocked(next))
+        {
+            Destroy(gameObject);
+            return;
+        }
+
+        worldPosition = next;
 
         if (owner == ProjectileOwner.Enemy &&
             ShieldPlacementController.Instance != null &&
@@ -86,16 +101,21 @@ public class ProjectileController : MonoBehaviour
                 }
             }
         }
-        else
+        else if (PlayerTankController.Instance != null &&
+                 Vector2.Distance(worldPosition, PlayerTankController.Instance.WorldPosition) <= hitRadius)
         {
-            if (PlayerTankController.Instance != null &&
-                Vector2.Distance(worldPosition, PlayerTankController.Instance.WorldPosition) <= hitRadius)
-            {
-                PlayerTankController.Instance.TakeDamage(damage);
-                Destroy(gameObject);
-                return;
-            }
+            PlayerTankController.Instance.TakeDamage(damage);
+            Destroy(gameObject);
+            return;
         }
+
+        RefreshVisual();
+    }
+
+    private void RefreshVisual()
+    {
+        if (boardWorldController == null)
+            return;
 
         bool visible = boardWorldController.IsWorldPositionVisible(worldPosition, visibilityPadding);
         bool forceShow = boardWorldController.DebugShowOffBoardEntities;

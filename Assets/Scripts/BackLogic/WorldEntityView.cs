@@ -1,8 +1,6 @@
 using UnityEngine;
 
-/// <summary>
-/// Called like this 'cause it controls the visual representation of an entity in the world, and it needs to be able to refresh itself when the world changes (e.g., when the player moves).
-/// </summary>
+// Converts stored world coordinates into the scrolling board-space view.
 public class WorldEntityView : MonoBehaviour
 {
     [Header("View")]
@@ -25,25 +23,38 @@ public class WorldEntityView : MonoBehaviour
             visualRoot = gameObject;
     }
 
-    private void LateUpdate()
+    private void OnDestroy()
     {
-        if (autoRefresh)
-            RefreshNow();
+        Unsubscribe();
     }
 
     public void Bind(BoardWorldController controller)
     {
+        if (boardWorldController == controller)
+            return;
+
+        Unsubscribe();
         boardWorldController = controller;
+
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged += OnPlayerWorldPositionChanged;
+
+        if (autoRefresh)
+            RefreshNow();
     }
 
     public void SetWorldPosition(Vector2 newWorldPosition)
     {
         worldPosition = newWorldPosition;
+        if (autoRefresh)
+            RefreshNow();
     }
 
     public void SetWorldY(float newWorldY)
     {
         worldY = newWorldY;
+        if (autoRefresh)
+            RefreshNow();
     }
 
     public void RefreshNow()
@@ -58,5 +69,17 @@ public class WorldEntityView : MonoBehaviour
             visualRoot.SetActive(forceShow || !hideWhenOutsideViewport || visible);
 
         transform.localPosition = boardWorldController.WorldToBoardLocal(worldPosition, worldY);
+    }
+
+    private void OnPlayerWorldPositionChanged(Vector2 _)
+    {
+        if (autoRefresh)
+            RefreshNow();
+    }
+
+    private void Unsubscribe()
+    {
+        if (boardWorldController != null)
+            boardWorldController.PlayerWorldPositionChanged -= OnPlayerWorldPositionChanged;
     }
 }
