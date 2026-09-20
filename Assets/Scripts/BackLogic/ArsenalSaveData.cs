@@ -7,8 +7,8 @@ public sealed class ArsenalSaveData
     [Serializable]
     public sealed class PlayerRankEntry
     {
-        public int level;
-        public string rank = "Unranked";
+        public int level = 1;
+        public string rank = "Recruit";
         public int xp;
 
         public PlayerRankEntry() { }
@@ -25,6 +25,8 @@ public sealed class ArsenalSaveData
     public int bestScore;
     public int totalRuns;
     public int highestWaveReached;
+    public int totalEnemiesDestroyed;
+    public int totalWavesCleared;
 
     public PlayerRankEntry playerRank = new();
 

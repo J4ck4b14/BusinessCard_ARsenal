@@ -83,6 +83,8 @@ public class BoardGameController : MonoBehaviour
 
     private void OnEnable()
     {
+        SubscribeGameplayFeedback();
+
         if (!started)
             return;
 
@@ -95,7 +97,7 @@ public class BoardGameController : MonoBehaviour
             waveTransitionCoroutine = StartCoroutine(WaveClearTransitionCoroutine());
 
         ui?.ApplyStateVisuals(currentState);
-        ui?.UpdateHud(currentState, currentWaveIndex, currentScore, BestScore);
+        RefreshHud();
     }
 
     private void Start()
@@ -106,6 +108,7 @@ public class BoardGameController : MonoBehaviour
 
     private void OnDisable()
     {
+        UnsubscribeGameplayFeedback();
         StopCountdown();
         StopWaveTransition();
         boardWorldController?.SetSimulationActive(false);
@@ -163,13 +166,25 @@ public class BoardGameController : MonoBehaviour
         countdownCoroutine = StartCoroutine(CountdownCoroutine());
     }
 
+    public void RegisterEnemyKill(int scoreValue)
+    {
+        if (currentState != BoardGameState.Playing)
+            return;
+
+        int awarded = Mathf.Max(0, scoreValue);
+        currentScore += awarded;
+        progress?.RegisterKill(awarded);
+        RefreshHud();
+    }
+
     public void CompleteCurrentWave()
     {
         if (currentState != BoardGameState.Playing)
             return;
 
-        currentScore += baseWaveScore * Mathf.Max(1, currentWaveIndex);
-        progress?.UpdateRunResultsIfBetter(currentScore, currentWaveIndex);
+        int waveBonus = baseWaveScore * Mathf.Max(1, currentWaveIndex);
+        currentScore += waveBonus;
+        progress?.RegisterWaveClear(currentScore, currentWaveIndex);
 
         SetState(BoardGameState.WaveClear);
         StopWaveTransition();
@@ -202,7 +217,7 @@ public class BoardGameController : MonoBehaviour
 
         StopCountdown();
         StopWaveTransition();
-        progress?.UpdateRunResultsIfBetter(currentScore, currentWaveIndex);
+        progress?.FinalizeRun(currentScore, currentWaveIndex);
 
         SetState(BoardGameState.GameOver);
 
@@ -266,9 +281,54 @@ public class BoardGameController : MonoBehaviour
 
         // Reconfigure the arena before every wave. The player keeps health and upgrades.
         chunkManager?.RebuildForWave(currentWaveIndex);
+        shieldPlacementController?.BeginWave(currentWaveIndex);
 
         SetState(BoardGameState.Playing);
         waveDirector?.StartWave(currentWaveIndex);
+    }
+
+
+    private void RefreshHud()
+    {
+        ui?.UpdateHud(currentState, currentWaveIndex, currentScore, BestScore);
+        ui?.UpdateShieldCharges(shieldPlacementController != null ? shieldPlacementController.PlacementsRemaining : 0, currentState);
+
+        if (playerTankController != null)
+            ui?.UpdateHealth(playerTankController.CurrentHealth, playerTankController.MaxHealth);
+    }
+
+    private void SubscribeGameplayFeedback()
+    {
+        if (playerTankController != null)
+        {
+            playerTankController.HealthChanged -= OnPlayerHealthChanged;
+            playerTankController.HealthChanged += OnPlayerHealthChanged;
+        }
+
+        if (shieldPlacementController != null)
+        {
+            shieldPlacementController.PlacementsRemainingChanged -= OnShieldChargesChanged;
+            shieldPlacementController.PlacementsRemainingChanged += OnShieldChargesChanged;
+        }
+    }
+
+    private void UnsubscribeGameplayFeedback()
+    {
+        if (playerTankController != null)
+            playerTankController.HealthChanged -= OnPlayerHealthChanged;
+
+        if (shieldPlacementController != null)
+            shieldPlacementController.PlacementsRemainingChanged -= OnShieldChargesChanged;
+    }
+
+    private void OnPlayerHealthChanged(float currentHealth, float maxHealth)
+    {
+        ui?.UpdateHealth(currentHealth, maxHealth);
+    }
+
+    private void OnShieldChargesChanged(int remaining)
+    {
+        ui?.UpdateShieldCharges(remaining, currentState);
     }
 
     private void SetState(BoardGameState newState, bool force = false)
@@ -281,7 +341,7 @@ public class BoardGameController : MonoBehaviour
         boardWorldController?.SetSimulationActive(IsSimulationActive(currentState));
         SyncBackHandler();
         ui?.ApplyStateVisuals(currentState);
-        ui?.UpdateHud(currentState, currentWaveIndex, currentScore, BestScore);
+        RefreshHud();
     }
 
     private static bool IsSimulationActive(BoardGameState state)

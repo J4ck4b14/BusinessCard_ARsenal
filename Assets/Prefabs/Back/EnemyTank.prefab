@@ -242,6 +242,8 @@ MonoBehaviour:
   projectileDamage: 1
   projectileLifetime: 3
   visibilityPadding: {x: 0.6, y: 0.6}
+  gunnerMinDistance: 2.4
+  gunnerPreferredDistance: 3.8
 --- !u!65 &3159434128038622062
 BoxCollider:
   m_ObjectHideFlags: 0

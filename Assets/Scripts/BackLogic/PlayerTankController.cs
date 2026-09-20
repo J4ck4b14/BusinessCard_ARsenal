@@ -39,9 +39,19 @@ public class PlayerTankController : MonoBehaviour
 
     [Header("Targeting")]
     [SerializeField] private float targetRange = 10f;
+    [SerializeField] private bool requireClearLineForAutoTarget = true;
 
     [Header("Weapon")]
     [SerializeField] private WeaponConfig primaryWeapon = new();
+    [SerializeField] private bool autoFireAtVisibleTargets = true;
+
+    [Header("Upgrade tuning")]
+    [SerializeField] private float rapidFireMultiplier = 1.22f;
+    [SerializeField] private float heavyDamageMultiplier = 1.30f;
+    [SerializeField] private float heavyProjectileSpeedMultiplier = 1.06f;
+    [SerializeField] private float mobilitySpeedMultiplier = 1.12f;
+    [SerializeField] private float mobilityMaxHealthGain = 0.5f;
+    [SerializeField] private float mobilityRepair = 1f;
 
     private float baseMoveSpeed;
     private float baseMaxHealth;
@@ -55,11 +65,21 @@ public class PlayerTankController : MonoBehaviour
     private Vector2 currentAimDirection = Vector2.up;
     private bool hasTarget;
 
+    private int rapidFireLevel;
+    private int heavyShellsLevel;
+    private int mobilityLevel;
+
+    public event Action<float, float> HealthChanged;
+    public event Action<UpgradeType, int> UpgradeApplied;
+
     public Vector2 WorldPosition => boardWorldController != null ? boardWorldController.PlayerWorldPosition : Vector2.zero;
     public float HullYawDegrees => hullYawDegrees;
     public float CurrentHealth => currentHealth;
     public float MaxHealth => maxHealth;
     public bool HasTarget => hasTarget;
+    public int RapidFireLevel => rapidFireLevel;
+    public int HeavyShellsLevel => heavyShellsLevel;
+    public int MobilityLevel => mobilityLevel;
 
     private void Awake()
     {
@@ -95,6 +115,10 @@ public class PlayerTankController : MonoBehaviour
         primaryWeapon.projectileSpeed = baseProjectileSpeed;
         primaryWeapon.damage = baseDamage;
 
+        rapidFireLevel = 0;
+        heavyShellsLevel = 0;
+        mobilityLevel = 0;
+
         currentHealth = maxHealth;
         hullYawDegrees = 0f;
         fireCooldown = 0f;
@@ -108,6 +132,8 @@ public class PlayerTankController : MonoBehaviour
 
         if (turretRoot != null)
             turretRoot.localRotation = Quaternion.identity;
+
+        HealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
     public void ApplyUpgrade(UpgradeType upgrade)
@@ -115,19 +141,35 @@ public class PlayerTankController : MonoBehaviour
         switch (upgrade)
         {
             case UpgradeType.RapidFire:
-                primaryWeapon.shotsPerSecond *= 1.25f;
+                rapidFireLevel++;
+                primaryWeapon.shotsPerSecond *= rapidFireMultiplier;
+                UpgradeApplied?.Invoke(upgrade, rapidFireLevel);
                 break;
 
             case UpgradeType.HeavyShells:
-                primaryWeapon.damage *= 1.35f;
-                primaryWeapon.projectileSpeed *= 1.08f;
+                heavyShellsLevel++;
+                primaryWeapon.damage *= heavyDamageMultiplier;
+                primaryWeapon.projectileSpeed *= heavyProjectileSpeedMultiplier;
+                UpgradeApplied?.Invoke(upgrade, heavyShellsLevel);
                 break;
 
             case UpgradeType.Mobility:
-                moveSpeed *= 1.15f;
-                currentHealth = Mathf.Min(maxHealth, currentHealth + 1f);
+                mobilityLevel++;
+                moveSpeed *= mobilitySpeedMultiplier;
+                maxHealth += mobilityMaxHealthGain;
+                Repair(mobilityRepair);
+                UpgradeApplied?.Invoke(upgrade, mobilityLevel);
                 break;
         }
+    }
+
+    public void Repair(float amount)
+    {
+        if (amount <= 0f)
+            return;
+
+        currentHealth = Mathf.Min(maxHealth, currentHealth + amount);
+        HealthChanged?.Invoke(currentHealth, maxHealth);
     }
 
     public void TakeDamage(float amount)
@@ -136,6 +178,7 @@ public class PlayerTankController : MonoBehaviour
             return;
 
         currentHealth = Mathf.Max(0f, currentHealth - amount);
+        HealthChanged?.Invoke(currentHealth, maxHealth);
         Debug.Log($"PLAYER HIT for {amount}. Health now: {currentHealth}");
 
         if (currentHealth <= 0f)
@@ -191,6 +234,10 @@ public class PlayerTankController : MonoBehaviour
             if (distanceSq >= bestDistanceSq)
                 continue;
 
+            if (requireClearLineForAutoTarget &&
+                !boardWorldController.HasClearLine(playerPosition, enemy.WorldPosition))
+                continue;
+
             bestDistanceSq = distanceSq;
             bestEnemy = enemy;
         }
@@ -209,7 +256,8 @@ public class PlayerTankController : MonoBehaviour
 
     private void HandleFire()
     {
-        if (!commandInput.IsFireHeld || primaryWeapon.projectilePrefab == null || fireCooldown > 0f)
+        bool wantsToFire = commandInput.IsFireHeld || (autoFireAtVisibleTargets && hasTarget);
+        if (!wantsToFire || primaryWeapon.projectilePrefab == null || fireCooldown > 0f)
             return;
 
         fireCooldown = 1f / Mathf.Max(0.01f, primaryWeapon.shotsPerSecond);

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -12,15 +13,23 @@ public class ShieldPlacementController : MonoBehaviour
     [SerializeField] private Transform shieldsRoot;
 
     [Header("Placement")]
-    [SerializeField] private int maxActiveShields = 3;
+    [SerializeField] private int maxActiveShields = 1;
+    [SerializeField] private int placementsPerWave = 2;
+    [SerializeField] private float placementCooldown = 1.5f;
     [SerializeField] private float shieldLifetime = 10f;
     [SerializeField] private float snapSize = 0.5f;
 
     private readonly List<ShieldWallController> activeShields = new();
+    private int placementsRemaining;
+    private float nextPlacementTime;
+
+    public event Action<int> PlacementsRemainingChanged;
+    public int PlacementsRemaining => placementsRemaining;
 
     private void Awake()
     {
         Instance = this;
+        placementsRemaining = Mathf.Max(0, placementsPerWave);
     }
 
     private void OnDestroy()
@@ -29,9 +38,20 @@ public class ShieldPlacementController : MonoBehaviour
             Instance = null;
     }
 
+    public void BeginWave(int waveIndex)
+    {
+        ClearAll();
+        placementsRemaining = Mathf.Max(0, placementsPerWave);
+        nextPlacementTime = 0f;
+        PlacementsRemainingChanged?.Invoke(placementsRemaining);
+    }
+
     public void TryPlaceShieldAtBoardLocal(Vector3 boardLocalPoint)
     {
         if (boardWorldController == null || !boardWorldController.SimulationActive || shieldPrefab == null)
+            return;
+
+        if (placementsRemaining <= 0 || Time.unscaledTime < nextPlacementTime)
             return;
 
         Vector3 snappedLocal = new(
@@ -41,7 +61,6 @@ public class ShieldPlacementController : MonoBehaviour
 
         Vector2 worldPosition = boardWorldController.BoardLocalToWorld(snappedLocal);
 
-        // A shield cannot be spawned inside procedural cover.
         if (boardWorldController.IsObstacleBlocked(worldPosition, snapSize * 0.35f))
             return;
 
@@ -53,6 +72,10 @@ public class ShieldPlacementController : MonoBehaviour
 
         shield.Initialize(boardWorldController, worldPosition, yaw, shieldLifetime);
         activeShields.Add(shield);
+
+        placementsRemaining--;
+        nextPlacementTime = Time.unscaledTime + Mathf.Max(0f, placementCooldown);
+        PlacementsRemainingChanged?.Invoke(placementsRemaining);
 
         while (activeShields.Count > maxActiveShields)
         {

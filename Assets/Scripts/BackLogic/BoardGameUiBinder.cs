@@ -1,5 +1,6 @@
 using TMPro;
 using UnityEngine;
+using UnityEngine.UI;
 
 public sealed class BoardGameUiBinder : MonoBehaviour
 {
@@ -18,12 +19,15 @@ public sealed class BoardGameUiBinder : MonoBehaviour
     [SerializeField] private TMP_Text scoreText;
     [SerializeField] private TMP_Text bestScoreText;
 
+    [Header("Gameplay feedback")]
+    [SerializeField] private Slider healthSlider;
+
     public void ApplyStateVisuals(BoardGameController.BoardGameState state)
     {
         SetActive(idleUiRoot, state == BoardGameController.BoardGameState.Idle);
         SetActive(countdownUiRoot, state == BoardGameController.BoardGameState.Countdown);
 
-        var showGameplay =
+        bool showGameplay =
             state == BoardGameController.BoardGameState.Countdown ||
             state == BoardGameController.BoardGameState.Playing ||
             state == BoardGameController.BoardGameState.WaveClear ||
@@ -56,6 +60,22 @@ public sealed class BoardGameUiBinder : MonoBehaviour
 
         if (bestScoreText != null)
             bestScoreText.text = $"Best: {bestScore}";
+    }
+
+    public void UpdateHealth(float currentHealth, float maxHealth)
+    {
+        if (healthSlider == null)
+            return;
+
+        healthSlider.minValue = 0f;
+        healthSlider.maxValue = Mathf.Max(1f, maxHealth);
+        healthSlider.value = Mathf.Clamp(currentHealth, 0f, healthSlider.maxValue);
+    }
+
+    public void UpdateShieldCharges(int remaining, BoardGameController.BoardGameState state)
+    {
+        if (stateText != null && state == BoardGameController.BoardGameState.Playing)
+            stateText.text = $"Shields: {Mathf.Max(0, remaining)}";
     }
 
     public void SetCountdownText(string value)

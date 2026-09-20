@@ -1293,9 +1293,17 @@ MonoBehaviour:
   enemyProjectilesRoot: {fileID: 2588687277137723017}
   seed: 12345
   baseEnemyCount: 3
-  extraEnemiesPerWave: 2
-  minSpawnRadius: 6
-  maxSpawnRadius: 10
+  extraEnemiesPerWave: 1
+  bonusEnemyEveryNWaves: 3
+  maxEnemyCount: 14
+  gunnerUnlockWave: 2
+  heavyUnlockWave: 4
+  baseGunnerChance: 0.2
+  baseHeavyChance: 0.1
+  minSpawnRadius: 5
+  maxSpawnRadius: 8
+  enemySpawnClearance: 0.4
+  maxSpawnAttemptsPerEnemy: 12
 --- !u!1 &2137628099310014174
 GameObject:
   m_ObjectHideFlags: 0
@@ -3025,6 +3033,8 @@ MonoBehaviour:
   shieldPrefab: {fileID: -4573671300956477732, guid: 9caeaeddb7778a44ba2984a56209c810, type: 3}
   shieldsRoot: {fileID: 315833459918586811}
   maxActiveShields: 1
+  placementsPerWave: 2
+  placementCooldown: 1.5
   shieldLifetime: 10
   snapSize: 0.5
 --- !u!1 &4017664497402497686
@@ -4573,13 +4583,21 @@ MonoBehaviour:
   turnDegreesPerSecond: 70
   maxHealth: 5
   targetRange: 10
+  requireClearLineForAutoTarget: 1
   primaryWeapon:
     projectilePrefab: {fileID: -6130565154288892499, guid: 216a561cc0763be449d3705162cae273, type: 3}
-    shotsPerSecond: 0.5
+    shotsPerSecond: 2
     projectileSpeed: 9
     damage: 1
     lifetime: 3
-    spawnDistance: 0
+    spawnDistance: 0.8
+  autoFireAtVisibleTargets: 1
+  rapidFireMultiplier: 1.22
+  heavyDamageMultiplier: 1.3
+  heavyProjectileSpeedMultiplier: 1.06
+  mobilitySpeedMultiplier: 1.12
+  mobilityMaxHealthGain: 0.5
+  mobilityRepair: 1
 --- !u!1 &5748718717801674705
 GameObject:
   m_ObjectHideFlags: 0
@@ -5666,6 +5684,7 @@ MonoBehaviour:
   waveText: {fileID: 4096491091031419844}
   scoreText: {fileID: 4922364943251439900}
   bestScoreText: {fileID: 6160616404971813347}
+  healthSlider: {fileID: 7837110388895265671}
 --- !u!114 &900000000000000002
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -5678,18 +5697,9 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 219b556ec0032f844a2925f538894cb6, type: 3}
   m_Name:
   m_EditorClassIdentifier: Assembly-CSharp::BoardGameProgress
-  saveData:
-    playerName: Player
-    bestScore: 0
-    totalRuns: 0
-    highestWaveReached: 0
-    playerRank:
-      level: 0
-      rank: Unranked
-      xp: 0
-    encounteredTankIds: []
-    unlockedTankIds: []
-    unlockedSkinIds: []
+  xpPerKillScorePoint: 1
+  waveClearBaseXp: 25
+  xpPerLevel: 250
 --- !u!1 &6735991455696612780
 GameObject:
   m_ObjectHideFlags: 0
@@ -6782,6 +6792,7 @@ MonoBehaviour:
   boardHalfWidth: 4
   boardHalfHeight: 2.5
   playerCollisionRadius: 0.18
+  lineOfSightSampleSpacing: 0.2
   debugShowOffBoardEntities: 0
 --- !u!1 &8134940130684353904
 GameObject:
